@@ -159,6 +159,17 @@
     border-style: solid;
     color: var(--ac-text);
 }
+.ac-sch-swatch-custom {
+    background: conic-gradient(from 0deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00) !important;
+    color: var(--ac-text);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.ac-sch-swatch-custom:hover {
+    transform: scale(1.15);
+    box-shadow: 0 0 8px rgba(255,255,255,0.4);
+}
 .ac-sch-range {
     width: 70px;
     accent-color: var(--ac-accent);

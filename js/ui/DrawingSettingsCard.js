@@ -3,19 +3,14 @@
  * Compact horizontal popup card that appears when a drawing is selected.
  *
  * Layout (TradingView-inspired):
- *   [✕] | [● color palette with "no fill" option] | Width: ━━●━━ |
+ *   [✕] | [●●●●●●●●● ⊘] [🎨] | Width: ━━●━━ |
  *   Style: [Solid▾] | Text: [____] [👁] | [⧉ Clone] [🗑 Delete]
  *
- * Features:
- * - Color palette: 10 colors in a card layout (like TradingView).
- *   The FIRST swatch is a "no fill" toggle (⊘) — clicking it removes the
- *   interior fill and makes the drawing use ONLY the line color.
- * - "Extend line" toggle (⟶) is kept.
- * - Lock icon was REMOVED per user request.
- * - Clone button duplicates the drawing at a small offset, same size/position.
- * - Delete icon is a clean trash can (canvas-drawn SVG icon, not emoji).
+ * The 🎨 button opens an HSL ColorPicker card (saturation/lightness square +
+ * hue bar + hex input) — like the user-provided screenshot.
  */
 import { DomUtils } from '../utils/DomUtils.js';
+import { ColorPicker } from './ColorPicker.js';
 
 // TradingView-style palette: a curated set of 9 colors.
 const PALETTE = [
@@ -45,6 +40,8 @@ export class DrawingSettingsCard {
         this.element = DomUtils.el('div', { class: 'ac-settings-card-h', style: 'display:none' });
         container.appendChild(this.element);
         this._build();
+        // HSL color picker (created lazily, shown when the 🎨 button is clicked)
+        this._colorPicker = new ColorPicker(container, (hex) => this._onColorPickerChange(hex));
         engine.drawingManager.onSelectionChange = (d) => {
             if (d) this.show(d);
             else this.hide();
@@ -53,6 +50,7 @@ export class DrawingSettingsCard {
         document.addEventListener('pointerdown', (e) => {
             if (!this.drawing) return;
             if (e.target.closest('.ac-settings-card-h')) return;
+            if (e.target.closest('.ac-color-picker')) return;
         });
     }
 
@@ -62,6 +60,11 @@ export class DrawingSettingsCard {
             <div class="ac-sch-group ac-sch-color-group">
                 <span class="ac-sch-label">Color</span>
                 <div class="ac-sch-palette" data-field="color"></div>
+                <button class="ac-sch-swatch ac-sch-swatch-custom" title="Custom color (HSL picker)">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M6 1.5a4.5 4.5 0 1 0 0 9 1 1 0 0 0 0-2 2.5 2.5 0 0 1-2.5-2.5 1 1 0 0 0-2 0A4.5 4.5 0 0 1 6 1.5z" fill="currentColor"/>
+                    </svg>
+                </button>
             </div>
             <div class="ac-sch-sep"></div>
             <div class="ac-sch-group">
@@ -102,7 +105,6 @@ export class DrawingSettingsCard {
         `;
         // Build color palette — first swatch is "no fill"
         const pal = this.element.querySelector('[data-field="color"]');
-        // "No fill" toggle (only relevant for shape drawings that have fillColor)
         const noFillSw = DomUtils.el('button', {
             class: 'ac-sch-swatch ac-sch-swatch-nofill',
             title: 'No fill (use line color only)',
@@ -111,7 +113,6 @@ export class DrawingSettingsCard {
         noFillSw.innerHTML = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="6" cy="6" r="4.5"/><path d="M3 3l6 6"/></svg>`;
         noFillSw.addEventListener('click', () => this._setFillMode('none'));
         pal.appendChild(noFillSw);
-        // Regular color swatches
         for (const c of PALETTE) {
             const sw = DomUtils.el('button', {
                 class: 'ac-sch-swatch',
@@ -121,6 +122,10 @@ export class DrawingSettingsCard {
             sw.addEventListener('click', () => this._setColor(c));
             pal.appendChild(sw);
         }
+        // Custom color button — opens the HSL ColorPicker.
+        this.element.querySelector('.ac-sch-swatch-custom').addEventListener('click', () => {
+            this._openColorPicker();
+        });
         // Wire other inputs
         this.element.querySelectorAll('[data-field]').forEach(el => {
             if (el.classList.contains('ac-sch-swatch')) return;
@@ -139,34 +144,42 @@ export class DrawingSettingsCard {
     }
 
     /**
-     * Set the LINE color. Also updates the fill color to match (with alpha)
-     * unless the user has explicitly chosen "no fill".
+     * Open the HSL color picker, positioned to the right of the palette.
      */
+    _openColorPicker() {
+        if (!this.drawing) return;
+        const initialColor = this.drawing.color || '#12C4F0';
+        this._colorPicker.show(initialColor);
+        // Position to the right of the settings card.
+        const cardRect = this.element.getBoundingClientRect();
+        const contRect = this.container.getBoundingClientRect();
+        const x = cardRect.right - contRect.left + 6;
+        const y = cardRect.top - contRect.top;
+        this._colorPicker.element.style.left = x + 'px';
+        this._colorPicker.element.style.top = y + 'px';
+    }
+
+    _onColorPickerChange(hex) {
+        // Live update while dragging.
+        this._setColor(hex);
+    }
+
     _setColor(c) {
         if (!this.drawing) return;
         this.drawing.color = c;
-        // If the drawing supports a fill color, sync it too — UNLESS the user
-        // has explicitly disabled fill (fillColor === null).
         if ('fillColor' in this.drawing) {
             if (this.drawing.fillColor !== null) {
                 this.drawing.fillColor = c;
             }
-            // else: keep fill disabled (null) — line color only.
         }
         this._syncDisplay();
         this.engine.requestRender();
     }
 
-    /**
-     * Toggle between "no fill" (line color only) and "fill = line color".
-     * Clicking the ⊘ swatch sets fillColor = null.
-     * Clicking it AGAIN (or any color swatch) restores the fill.
-     */
     _setFillMode(mode) {
         if (!this.drawing) return;
-        if (!('fillColor' in this.drawing)) return; // not a fillable drawing
+        if (!('fillColor' in this.drawing)) return;
         if (mode === 'none') {
-            // Toggle: if already no-fill, restore fill = line color.
             if (this.drawing.fillColor === null) {
                 this.drawing.fillColor = this.drawing.color;
             } else {
@@ -188,7 +201,6 @@ export class DrawingSettingsCard {
     _syncDisplay() {
         if (!this.drawing) return;
         const d = this.drawing;
-        // Sync inputs
         this.element.querySelectorAll('[data-field]').forEach(el => {
             if (el.classList.contains('ac-sch-swatch')) return;
             if (el.classList.contains('ac-sch-palette')) return;
@@ -198,13 +210,12 @@ export class DrawingSettingsCard {
             else if (f === 'lineWidth') el.value = d.lineWidth;
             else if (f === 'text') el.value = d.text || '';
         });
-        // Highlight active color swatch
         const isNoFill = ('fillColor' in d) && d.fillColor === null;
         this.element.querySelectorAll('.ac-sch-swatch').forEach(sw => {
             const c = sw.dataset.color;
             if (c === '__NO_FILL__') {
                 sw.classList.toggle('active', isNoFill);
-            } else {
+            } else if (c) {
                 sw.classList.toggle('active', c === d.color && !isNoFill);
             }
         });
@@ -220,6 +231,7 @@ export class DrawingSettingsCard {
 
     hide() {
         this.element.style.display = 'none';
+        this._colorPicker.hide();
         this.drawing = null;
     }
 
@@ -246,11 +258,6 @@ export class DrawingSettingsCard {
         this.engine.requestRender();
     }
 
-    /**
-     * Clone (duplicate) the selected drawing.
-     * The clone appears at a small offset from the original (same size, same
-     * shape, same colors) so the user can see that the copy succeeded.
-     */
     _clone() {
         if (!this.drawing) return;
         const json = this.drawing.toJSON();
@@ -258,21 +265,18 @@ export class DrawingSettingsCard {
         const factory = this.engine.drawingManager._toolFactories[json.type];
         if (factory) {
             const clone = factory(json);
-            // Offset the clone by a small amount in chart coordinates.
-            // ~3 bars to the right, and a small price shift.
             const vp = this.engine.viewport;
             const offsetBars = 3;
             const offsetPrice = (vp.priceRange.max - vp.priceRange.min) * 0.02;
             clone.anchors.forEach(a => {
                 a.index += offsetBars;
-                a.price -= offsetPrice; // shift down slightly so it's visible
+                a.price -= offsetPrice;
             });
             this.engine.drawingManager.add(clone);
-            // Select the clone so the user can keep working on it.
             this.engine.drawingManager.selectedId = clone.id;
             this.engine.requestRender();
-            // Show the settings card on the new clone.
             this.show(clone);
         }
     }
 }
+

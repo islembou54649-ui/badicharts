@@ -23,31 +23,58 @@ const TOOL_CATEGORIES = [
             { id: 'vline',     label: 'Vertical Line',   icon: '│' },
             { id: 'arrow',     label: 'Arrow',       icon: '➤' },
             { id: 'brush',     label: 'Brush',       icon: '๛' },
-            { id: 'polyline',  label: 'Polyline',    icon: '⩘' }
+            { id: 'polyline',  label: 'Polyline',    icon: '⩘' },
+            { id: 'trendchannel', label: 'Trend Channel', icon: '⫼' }
         ]
     },
     {
         name: 'Shapes',
         tools: [
             { id: 'rectangle', label: 'Rectangle', icon: '▭' },
+            { id: 'squarebox', label: 'Square Box', icon: '◻' },
             { id: 'ellipse',   label: 'Ellipse',   icon: '◯' },
-            { id: 'triangle',  label: 'Triangle',  icon: '△' }
+            { id: 'triangle',  label: 'Triangle',  icon: '△' },
+            { id: 'trianglepattern', label: 'Triangle Pattern', icon: '△' },
+            { id: 'flagpattern', label: 'Flag / Pennant', icon: '⚑' },
+            { id: 'highlighter', label: 'Highlighter', icon: '▣' },
+            { id: 'note',       label: 'Sticky Note', icon: '📝' }
         ]
     },
     {
         name: 'Fibonacci',
         tools: [
-            { id: 'fib',        label: 'Fib Retracement', icon: 'F' },
+            { id: 'fib',        label: 'Fib Retracement (editable)', icon: 'F' },
             { id: 'fibext',     label: 'Fib Extension',   icon: 'F+' },
-            { id: 'fibchannel', label: 'Fib Channel',     icon: 'F‖' }
+            { id: 'fibchannel', label: 'Fib Channel',     icon: 'F‖' },
+            { id: 'timecycle',  label: 'Time Cycle',      icon: '⟳' }
         ]
     },
     {
-        name: 'Patterns & Channels',
+        name: 'Patterns',
         tools: [
-            { id: 'channel',  label: 'Parallel Channel', icon: '‖' },
+            { id: 'channel',   label: 'Parallel Channel', icon: '‖' },
             { id: 'pitchfork', label: 'Andrews Pitchfork', icon: '⋔' },
-            { id: 'gannbox',  label: 'Gann Box',          icon: '⊞' }
+            { id: 'gannbox',   label: 'Gann Box',          icon: '⊞' },
+            { id: 'elliottwave', label: 'Elliott Wave (1-2-3-4-5)', icon: 'Ɛ' },
+            { id: 'abcdpattern', label: 'ABCD Pattern',   icon: 'Z' },
+            { id: 'doubletop',    label: 'Double Top',    icon: 'M' },
+            { id: 'doublebottom', label: 'Double Bottom', icon: 'W' }
+        ]
+    },
+    {
+        name: 'Forecast / Ghost',
+        tools: [
+            { id: 'ghostcandle',   label: 'Ghost Candle (forecast)', icon: '🕯' },
+            { id: 'ghostsequence', label: 'Ghost Sequence (5 candles)', icon: '🕯×5' },
+            { id: 'sinewave',      label: 'Sine Wave',       icon: '∿' },
+            { id: 'pricealert',    label: 'Price Alert Line', icon: '🔔' }
+        ]
+    },
+    {
+        name: 'Markers',
+        tools: [
+            { id: 'crossmark', label: 'Cross Marker', icon: '✕' },
+            { id: 'dotmark',   label: 'Dot Marker',   icon: '●' }
         ]
     },
     {

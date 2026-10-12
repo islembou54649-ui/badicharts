@@ -114,7 +114,7 @@ export const INDICATOR_REGISTRY = {
     ChaikinOsc: { cls: ChaikinOsc, type: 'pane', category: 'Volume' },
     CMF: { cls: CMF, type: 'pane', category: 'Volume' },
     PVO: { cls: PVO, type: 'pane', category: 'Volume' },
-    VolumeProfile: { cls: VolumeProfile, type: 'pane', category: 'Volume' },
+    VolumeProfile: { cls: VolumeProfile, type: 'overlay', category: 'Volume' },
     // Volatility
     ATR: { cls: ATR, type: 'pane', category: 'Volatility' },
     ADX: { cls: ADX, type: 'pane', category: 'Volatility' }
