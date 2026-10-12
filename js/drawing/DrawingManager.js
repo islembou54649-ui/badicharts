@@ -37,8 +37,6 @@ import { PriceLabel } from './PriceLabel.js';
 import { DateRange } from './DateRange.js';
 import { Pitchfork } from './Pitchfork.js';
 import { GannBox } from './GannBox.js';
-import { GhostCandle } from './GhostCandle.js';
-import { ALL_EXTRA_TOOLS } from './ExtraTools.js';
 
 export class DrawingManager {
     constructor() {
@@ -86,11 +84,7 @@ export class DrawingManager {
             text: (opts) => new TextDrawing(opts),
             pricelabel: (opts) => new PriceLabel(opts),
             daterange: (opts) => new DateRange(opts),
-            measurement: (opts) => new Measurement(opts),
-            // Forecast / Ghost candles
-            ghostcandle: (opts) => new GhostCandle(opts),
-            // ...and the extra tools (16 more)
-            ...ALL_EXTRA_TOOLS
+            measurement: (opts) => new Measurement(opts)
         };
     }
 

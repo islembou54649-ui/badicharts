@@ -63,7 +63,7 @@ import { UltimateOsc } from '../indicators/panes/UltimateOsc.js';
 import { VolumeProfile } from '../indicators/panes/VolumeProfile.js';
 
 export const INDICATOR_REGISTRY = {
-    // Overlays
+    // Moving Averages — kept per user request (overlay on candles)
     SMA: { cls: SMA, type: 'overlay', category: 'Moving Averages' },
     EMA: { cls: EMA, type: 'overlay', category: 'Moving Averages' },
     WMA: { cls: WMA, type: 'overlay', category: 'Moving Averages' },
@@ -76,48 +76,17 @@ export const INDICATOR_REGISTRY = {
     ALMA: { cls: ALMA, type: 'overlay', category: 'Moving Averages' },
     MAribbon: { cls: MAribbon, type: 'overlay', category: 'Moving Averages' },
     EMAribbon: { cls: EMAribbon, type: 'overlay', category: 'Moving Averages' },
-    VWAP: { cls: VWAP, type: 'overlay', category: 'Volume' },
-    AnchoredVWAP: { cls: AnchoredVWAP, type: 'overlay', category: 'Volume' },
-    BollingerBands: { cls: BollingerBands, type: 'overlay', category: 'Bands & Channels' },
-    KeltnerChannel: { cls: KeltnerChannel, type: 'overlay', category: 'Bands & Channels' },
-    DonchianChannel: { cls: DonchianChannel, type: 'overlay', category: 'Bands & Channels' },
-    EnvChannel: { cls: EnvChannel, type: 'overlay', category: 'Bands & Channels' },
-    LinearRegression: { cls: LinearRegression, type: 'overlay', category: 'Bands & Channels' },
-    SuperTrend: { cls: SuperTrend, type: 'overlay', category: 'Trend' },
-    ParabolicSAR: { cls: ParabolicSAR, type: 'overlay', category: 'Trend' },
-    IchimokuCloud: { cls: IchimokuCloud, type: 'overlay', category: 'Trend' },
-    ZigZag: { cls: ZigZag, type: 'overlay', category: 'Trend' },
-    PivotPoints: { cls: PivotPoints, type: 'overlay', category: 'Trend' },
-    WilliamsFractals: { cls: WilliamsFractals, type: 'overlay', category: 'Trend' },
-    HeikinAshi: { cls: HeikinAshi, type: 'overlay', category: 'Trend' },
-    // Pane indicators
-    RSI: { cls: RSI, type: 'pane', category: 'Oscillators' },
-    MACD: { cls: MACD, type: 'pane', category: 'Oscillators' },
-    Stochastic: { cls: Stochastic, type: 'pane', category: 'Oscillators' },
-    StochRSI: { cls: StochRSI, type: 'pane', category: 'Oscillators' },
-    CCI: { cls: CCI, type: 'pane', category: 'Oscillators' },
-    WilliamsR: { cls: WilliamsR, type: 'pane', category: 'Oscillators' },
-    ROC: { cls: ROC, type: 'pane', category: 'Oscillators' },
-    Momentum: { cls: Momentum, type: 'pane', category: 'Oscillators' },
-    TRIX: { cls: TRIX, type: 'pane', category: 'Oscillators' },
-    DPO: { cls: DPO, type: 'pane', category: 'Oscillators' },
-    KST: { cls: KST, type: 'pane', category: 'Oscillators' },
-    AO: { cls: AO, type: 'pane', category: 'Oscillators' },
-    AC: { cls: AC, type: 'pane', category: 'Oscillators' },
-    PPO: { cls: PPO, type: 'pane', category: 'Oscillators' },
-    TSI: { cls: TSI, type: 'pane', category: 'Oscillators' },
-    UltimateOsc: { cls: UltimateOsc, type: 'pane', category: 'Oscillators' },
-    // Volume-based pane indicators
+    // Volume indicators — kept per user request
     Volume: { cls: Volume, type: 'pane', category: 'Volume' },
-    OBV: { cls: OBV, type: 'pane', category: 'Volume' },
-    MFI: { cls: MFI, type: 'pane', category: 'Volume' },
-    ChaikinOsc: { cls: ChaikinOsc, type: 'pane', category: 'Volume' },
-    CMF: { cls: CMF, type: 'pane', category: 'Volume' },
-    PVO: { cls: PVO, type: 'pane', category: 'Volume' },
-    VolumeProfile: { cls: VolumeProfile, type: 'overlay', category: 'Volume' },
-    // Volatility
-    ATR: { cls: ATR, type: 'pane', category: 'Volatility' },
-    ADX: { cls: ADX, type: 'pane', category: 'Volatility' }
+    VolumeProfile: { cls: VolumeProfile, type: 'overlay', category: 'Volume' }
+    // NOTE: All other indicators (RSI, MACD, Bollinger, Stochastic, OBV, MFI,
+    // ATR, ADX, Ichimoku, SuperTrend, ParabolicSAR, ZigZag, PivotPoints,
+    // WilliamsFractals, HeikinAshi, VWAP, AnchoredVWAP, Keltner, Donchian,
+    // EnvChannel, LinearRegression, CCI, WilliamsR, ROC, Momentum, TRIX,
+    // DPO, KST, AO, AC, PPO, TSI, UltimateOsc, ChaikinOsc, CMF, PVO) have
+    // been removed per user request. Their class imports remain so the
+    // existing indicator instances on a saved chart still load, but they
+    // are no longer selectable from the Indicators menu.
 };
 
 export class IndicatorManager {
