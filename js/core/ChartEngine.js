@@ -124,6 +124,8 @@ export class ChartEngine {
         this.themeManager.subscribe((theme) => {
             this.theme = theme;
             this.root.classList.toggle('ac-theme-light', theme.name === 'light');
+            // Re-apply watermark colors on theme change.
+            if (this.watermark) this.watermark.applyTheme(theme);
             this.requestRender();
         });
         this.root.classList.toggle('ac-theme-light', this.theme.name === 'light');
@@ -134,6 +136,10 @@ export class ChartEngine {
         this.mainPane = mainPane;
         this.canvas.onResize = (w, h) => this._onResize(w, h);
         this.eventManager = new EventManager(this.canvas, this);
+
+        // Mount the brand watermark as a DOM overlay in the chart area.
+        this.watermark.mount(this.chartArea);
+        this.watermark.applyTheme(this.theme);
 
         // Initial size
         this._onResize(this.canvas.cssWidth, this.canvas.cssHeight);
@@ -210,12 +216,10 @@ export class ChartEngine {
         ctx.fillStyle = theme.chartBg;
         ctx.fillRect(0, 0, canvasW, canvasH);
 
-        // === 1b. Brand watermark — bottom-left of the main price region.
-        //         Drawn AFTER the background but BEFORE the gridlines/candles,
-        //         so the watermark sits BEHIND all chart data.
-        if (mainRegion) {
-            this.watermark.draw(ctx, mainRegion.rect, theme);
-        }
+        // === 1b. Brand watermark — drawn as a DOM overlay (NOT on canvas).
+        //         See Watermark.js: it mounts an <img>/<svg> element in the
+        //         bottom-left corner of the chart area, behind the canvas.
+        //         The canvas-side render loop no longer paints the watermark.
 
         // === 2. Render each region ===
         // Main region: candles + overlays + drawings
@@ -254,11 +258,18 @@ export class ChartEngine {
         //        time axis so its time label is visible on top ===
         this._drawCrosshair(ctx, regions, dm, theme, priceScaleW, canvasW, canvasH);
 
-        // === 7. Top info strip (horizontal text: symbol + price + OHLCV) ===
+        // === 7. Top info strip — TradingView-style single line ===
+        //         Shows: SYMBOL  price  ▲/▼ change (changePct%)
+        //         If the cursor is inside the chart, the displayed values
+        //         reflect the candle under the cursor; otherwise they show
+        //         the latest bar. This is ONE strip, not two — the old layout
+        //         had two stacked strips (y=8 and y=28) which the user found
+        //         redundant.
         this._drawTopInfoStrip(ctx, dm, theme, canvasW);
 
-        // === 8. Bottom info bar (cursor candle OHLCV, fixed in bottom-left) ===
-        this._drawBottomInfoBar(ctx, regions, dm, theme, priceScaleW);
+        // === 8. Bottom info bar (cursor candle OHLCV) — REMOVED.
+        //         It was the second of the two stacked strips and is no longer
+        //         drawn. The top strip already shows everything the user needs.
 
         // === Status bar updates ===
         if (this.eventManager.pointerInside) {
@@ -705,51 +716,92 @@ export class ChartEngine {
     }
 
     /**
-     * Draw the top info strip: a single horizontal line of text showing
-     * symbol + current price + change + OHLCV of the last candle.
-     * This replaces the old floating legend card.
+     * Draw the top info strip — TradingView-style single compact line.
+     *
+     * Layout (left → right, all on one row at y≈8):
+     *   SYMBOL  price  ▲ change (changePct%)   [O H L C   Vol]   [time]
+     *
+     * - When the cursor is INSIDE the chart, all values reflect the bar under
+     *   the cursor (and a small time label is shown on the right).
+     * - When the cursor is OUTSIDE the chart (or there is no pointer), the
+     *   values reflect the LATEST bar (and the time label is hidden).
+     *
+     * This replaces the old two-strip layout (top strip + bottom info bar).
      */
     _drawTopInfoStrip(ctx, dm, theme, canvasW) {
         if (dm.size === 0) return;
-        const last = dm.get(dm.size - 1);
-        if (!last) return;
-        const prev = dm.size > 1 ? dm.get(dm.size - 2) : last;
-        const change = last.close - prev.close;
-        const changePct = prev.close ? (change / prev.close) * 100 : 0;
+
+        // Decide which bar to display: cursor bar if pointer is inside, else last.
+        const vp = this.viewport;
+        let c = null;
+        let prevC = null;
+        let cursorActive = false;
+        if (this.eventManager.pointerInside) {
+            const idx = Math.max(0, Math.min(dm.size - 1, Math.floor(vp.xToIndex(this.eventManager.pointerX))));
+            c = dm.get(idx);
+            if (idx > 0) prevC = dm.get(idx - 1);
+            cursorActive = true;
+        }
+        if (!c) {
+            c = dm.get(dm.size - 1);
+            if (dm.size > 1) prevC = dm.get(dm.size - 2);
+        }
+        if (!c || !prevC) {
+            // Fallback: only one bar available
+            prevC = c;
+        }
+
+        const change = c.close - prevC.close;
+        const changePct = prevC.close ? (change / prevC.close) * 100 : 0;
         const isUp = change >= 0;
         const color = isUp ? theme.upColor : theme.downColor;
         const arrow = isUp ? '▲' : '▼';
 
         ctx.save();
-        ctx.font = "12px 'Inter', sans-serif";
         ctx.textBaseline = 'top';
         ctx.textAlign = 'left';
-
-        let x = 12;
         const y = 8;
-        // Symbol
+        let x = 12;
+
+        // --- Symbol ---
         ctx.fillStyle = theme.textColor;
         ctx.font = "bold 13px 'Inter', sans-serif";
         ctx.fillText(this.symbol, x, y);
-        x += ctx.measureText(this.symbol).width + 16;
+        x += ctx.measureText(this.symbol).width + 14;
 
-        // Price
+        // --- Current/close price (colored) ---
         ctx.fillStyle = color;
         ctx.font = "bold 13px 'JetBrains Mono', monospace";
-        ctx.fillText(MathUtils.formatPrice(last.close), x, y);
-        x += ctx.measureText(MathUtils.formatPrice(last.close)).width + 12;
+        const priceTxt = MathUtils.formatPrice(c.close);
+        ctx.fillText(priceTxt, x, y);
+        x += ctx.measureText(priceTxt).width + 10;
 
-        // Change
+        // --- Change arrow + value + percent (compact, TradingView-style) ---
         ctx.font = "12px 'JetBrains Mono', monospace";
-        const changeTxt = `${arrow} ${change >= 0 ? '+' : ''}${change.toFixed(4)} (${changePct.toFixed(2)}%)`;
+        const changeTxt = `${arrow} ${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePct.toFixed(2)}%)`;
         ctx.fillText(changeTxt, x, y);
-        x += ctx.measureText(changeTxt).width + 20;
+        x += ctx.measureText(changeTxt).width + 18;
 
-        // OHLCV
-        ctx.fillStyle = theme.mutedText;
-        ctx.font = "11px 'JetBrains Mono', monospace";
-        const ohlcv = `O ${MathUtils.formatPrice(last.open)}  H ${MathUtils.formatPrice(last.high)}  L ${MathUtils.formatPrice(last.low)}  C ${MathUtils.formatPrice(last.close)}  Vol ${this._fmtVol(last.volume)}`;
-        ctx.fillText(ohlcv, x, y);
+        // --- Compact OHLCV (only when cursor is active, dimmed) ---
+        if (cursorActive) {
+            ctx.fillStyle = theme.mutedText;
+            ctx.font = "11px 'JetBrains Mono', monospace";
+            const ohlcv = `O ${MathUtils.formatPrice(c.open)}  H ${MathUtils.formatPrice(c.high)}  L ${MathUtils.formatPrice(c.low)}  C ${MathUtils.formatPrice(c.close)}  Vol ${this._fmtVol(c.volume)}`;
+            ctx.fillText(ohlcv, x, y);
+            x += ctx.measureText(ohlcv).width + 18;
+
+            // --- Time label (right-aligned, dimmed) ---
+            const d = new Date(c.time);
+            const pad = (n) => String(n).padStart(2, '0');
+            const timeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+            const w = ctx.measureText(timeStr).width;
+            const rightX = canvasW - this.priceScale.width - 12 - w;
+            if (rightX > x) {
+                ctx.fillStyle = theme.mutedText;
+                ctx.fillText(timeStr, rightX, y);
+            }
+        }
+
         ctx.restore();
     }
 
