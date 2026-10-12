@@ -230,11 +230,17 @@ export class IndicatorManager {
     /**
      * Update main pane overlays' contribution to the main pane's autoscale range.
      * Returns extended price range if overlays extend beyond candle range.
+     *
+     * FIX: overlays that return null from visibleRange() (e.g. VolumeProfile
+     * which uses the candle range directly) are SKIPPED here — they don't
+     * contribute to autoscale, so the candle range isn't broken.
      */
     overlayRange(viewport, dm) {
         let min = Infinity, max = -Infinity;
         for (const ind of this.overlays) {
-            const r = ind.visibleRange ? ind.visibleRange(viewport, dm) : { min: Infinity, max: -Infinity };
+            if (typeof ind.visibleRange !== 'function') continue;
+            const r = ind.visibleRange(viewport, dm);
+            if (!r) continue; // overlay doesn't contribute to autoscale
             if (r.min < min) min = r.min;
             if (r.max > max) max = r.max;
         }
