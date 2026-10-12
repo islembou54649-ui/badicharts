@@ -164,13 +164,11 @@ export class EventManager {
                 this._scaleAnchorPrice = null;
             }
         } else if (inTimeAxis) {
-            // Time-axis drag = horizontal ZOOM (bar spacing), anchored to the
-            // LEFT edge (first visible candle). Drag RIGHT → zoom in (wider
-            // candles, fewer bars). Drag LEFT → zoom out (more bars).
-            // This mirrors the +/- toolbar buttons but is more direct.
-            this.activeAction = 'scale-time';
-            this._scaleStartX = x;
-            this._scaleStartSpacing = vp.barSpacing;
+            // Time-axis drag = horizontal PAN (default chart behavior).
+            // The previous 'scale-time' (zoom via drag) feature was removed
+            // per user request — zoom on the time axis is now done only
+            // via the +/- toolbar buttons or the mouse wheel.
+            this.activeAction = 'pan';
         } else if (e.button === 2 || e.shiftKey) {
             // Right button or shift = force pan
             this.activeAction = 'pan';
@@ -210,9 +208,9 @@ export class EventManager {
             }
 
             if (this.activeAction === 'pan') {
-                // Chart-area pan = HORIZONTAL ONLY. Price scaling is done
-                // via the 'scale-price' action (price axis drag), and time-
-                // axis zoom is done via 'scale-time' (time axis drag).
+                // Chart-area and time-axis pan = HORIZONTAL ONLY. Price
+                // scaling is done via the 'scale-price' action (price axis
+                // drag). Time-axis zoom is done via +/- buttons or wheel.
                 this.engine.viewport.panBy(dx);
                 this.engine.viewport.updatePriceRange(this.engine.dataManager);
             } else if (this.activeAction === 'scale-price') {
@@ -242,29 +240,6 @@ export class EventManager {
                 const newMin = pivot - pivotT * newSpan;
                 const newMax = newMin + newSpan;
                 vp.priceRange = { min: newMin, max: newMax };
-            } else if (this.activeAction === 'scale-time') {
-                // Time-axis drag = horizontal zoom (bar spacing).
-                // Drag LEFT (dx<0) → zoom IN (wider candles, fewer bars).
-                // Drag RIGHT (dx>0) → zoom OUT (narrower candles, more bars).
-                // This matches the natural gesture: pinching inward = zoom in,
-                // expanding outward = zoom out. The first visible bar (left
-                // edge) stays fixed — the zoom is anchored to the LEFT edge.
-                const vp = this.engine.viewport;
-                const totalDx = x - this._scaleStartX;
-                // Sensitivity: 200px of drag = ~2x zoom.
-                // Negative sign so drag LEFT (dx<0) → factor>1 → zoom IN.
-                const factor = Math.exp(-totalDx / 200);
-                const newSpacing = MathUtils.clamp(
-                    this._scaleStartSpacing * factor,
-                    vp.minBarSpacing,
-                    vp.maxBarSpacing
-                );
-                // Keep the LEFT visible bar index stable so the zoom appears
-                // anchored to the first candle (TradingView "magnet left").
-                const leftIdx = vp.leftEdge;
-                vp.barSpacing = newSpacing;
-                vp.scrollPosition = leftIdx;
-                vp.updatePriceRange(this.engine.dataManager);
             } else if (this.activeAction === 'draw') {
                 this.engine.drawingManager.onPointerMove(x, y);
             } else if (this.activeAction === 'select-drag' && this._dragTarget) {
