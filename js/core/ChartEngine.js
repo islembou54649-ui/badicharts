@@ -140,6 +140,14 @@ export class ChartEngine {
         // Mount the brand watermark as a DOM overlay in the chart area.
         this.watermark.mount(this.chartArea);
         this.watermark.applyTheme(this.theme);
+        // Provide a resolver that returns the MAIN price pane's rect — the
+        // watermark uses it to position itself INSIDE the main pane, never
+        // spilling onto the time axis strip or indicator panes below.
+        this.watermark.setRegionResolver(() => {
+            const mainRegion = this._getMainRegion();
+            if (!mainRegion) return null;
+            return mainRegion.rect;
+        });
 
         // Initial size
         this._onResize(this.canvas.cssWidth, this.canvas.cssHeight);
@@ -283,6 +291,9 @@ export class ChartEngine {
 
         this.perf.endRender();
         this.perf.tick();
+
+        // Reposition the watermark inside the (possibly resized/panned) main pane.
+        if (this.watermark) this.watermark.updatePosition();
     }
 
     /**
@@ -409,28 +420,47 @@ export class ChartEngine {
 
     /**
      * Draw the pane title bar with indicator control buttons.
-     * Buttons are drawn on canvas at fixed positions; hit-testing is done
-     * in _handlePaneButtonClick (called from EventManager).
+     *
+     * CHANGED per user request: previously this was drawn at pane-local y=4,
+     * which collided with the top info strip (drawn at canvas y=8). The
+     * indicator labels + buttons are now drawn at y=28 — directly BELOW the
+     * top info strip — so the two strips no longer overlap.
+     *
+     * The main pane uses canvas-global y=28 (since its pane-local y=0 is the
+     * top of the canvas). Indicator panes (volume, RSI, etc.) still draw at
+     * their own pane-local y=4 because they sit BELOW the main pane and have
+     * their own title area.
      */
     _drawPaneTitleWithControls(ctx, pane, theme) {
         const buttons = this._getPaneButtons(pane);
+        // Main pane: y=28 (below the top info strip at y=8).
+        // Indicator panes: y=4 (their own pane-local top).
+        const yOffset = pane.isMain ? 28 : 4;
         // Title text
         ctx.font = "bold 11px 'Inter', sans-serif";
         ctx.fillStyle = theme.textColor;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
-        ctx.fillText(pane.title, 8, 4);
+        ctx.fillText(pane.title, 8, yOffset);
         let x = 8 + ctx.measureText(pane.title).width + 12;
         // Buttons
         for (const btn of buttons) {
             btn.x = x;
-            btn.y = 3;
+            btn.y = yOffset - 1;
             btn.w = 18;
             btn.h = 16;
-            // Button background on hover/active
+            // Button background on hover/active — now with a subtle rounded
+            // background to feel interactive.
             if (btn.hovered) {
                 ctx.fillStyle = theme.toolbarBtn;
                 ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+            } else if (btn.active) {
+                // Active buttons get a subtle tinted background so they
+                // look "pressed"/"on".
+                ctx.fillStyle = theme.upColor;
+                ctx.globalAlpha = 0.12;
+                ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+                ctx.globalAlpha = 1;
             }
             // Icon
             ctx.font = "12px 'Inter', sans-serif";
@@ -558,8 +588,16 @@ export class ChartEngine {
     }
 
     /**
-     * Draw the current-price line across ALL regions (connected, not broken).
-     * This is the horizontal dashed line at the last close price, with a price tag on the right.
+     * Draw the current-price line.
+     *
+     * CHANGED per user request: previously this drew a HORIZONTAL dashed line
+     * at the last close price (spanning all panes) PLUS a VERTICAL dashed line
+     * on the right edge connecting the price level across panes. The user
+     * found the vertical dashed line distracting — it has been REMOVED.
+     *
+     * Now we only draw:
+     *   - The price tag on the right price-axis (a small colored box with the
+     *     close price), which is the standard TradingView "last price" label.
      */
     _drawCurrentPriceLine(ctx, regions, theme, priceScaleW) {
         const dm = this.dataManager;
@@ -577,36 +615,6 @@ export class ChartEngine {
         const color = isUp ? theme.upColor : theme.downColor;
 
         ctx.save();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        // FIX: Compute bottomY = bottom of the last indicator region (just above time axis).
-        // The variable was previously computed but never used, which meant the price line
-        // only appeared as a single horizontal line inside the main region and did not
-        // extend through the volume / RSI panes (Test 5 failure).
-        let bottomY = mainRegion.rect.y + mainRegion.rect.h;
-        for (const r of regions) {
-            if (r.id === 'timeaxis') continue;
-            if (r.id === 'main') continue;
-            bottomY = r.rect.y + r.rect.h;
-        }
-        // Horizontal dashed line at the close-price Y (inside main region)
-        ctx.moveTo(0, absY + 0.5);
-        ctx.lineTo(canvasW - priceScaleW, absY + 0.5);
-        ctx.stroke();
-        // FIX: Vertical dashed line on the right edge of the chart area, extending from
-        // the close-price Y (absY) down to the bottom of the last indicator pane.
-        // This makes the current-price line visibly CROSS ALL PANES — the dashed line
-        // is now visible inside the volume and RSI panes as well, satisfying the
-        // "extends across ALL regions (connected, not broken)" requirement.
-        if (bottomY > absY) {
-            ctx.beginPath();
-            ctx.moveTo(canvasW - priceScaleW + 0.5, absY + 0.5);
-            ctx.lineTo(canvasW - priceScaleW + 0.5, bottomY + 0.5);
-            ctx.stroke();
-        }
-        ctx.setLineDash([]);
 
         // Price tag on the right (in the price scale area, at the main region's Y)
         const tagX = canvasW - priceScaleW;

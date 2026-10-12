@@ -74,6 +74,10 @@ export class Watermark {
         this._wrap = null;
         this._svgHost = null;
         this._theme = null;
+        // The chart engine attaches a region-resolver callback so the watermark
+        // can position itself inside the MAIN pane only (not on the time axis
+        // strip, not on indicator panes below).
+        this._getMainRegionRect = null;
     }
 
     /**
@@ -86,15 +90,17 @@ export class Watermark {
 
         const wrap = document.createElement('div');
         wrap.className = 'ac-watermark';
+        // Positioned relative to chartArea; we'll update top/bottom in
+        // updatePosition() once we know the main pane's rect.
         wrap.style.cssText = `
             position: absolute;
             left: ${this.paddingLeft}px;
-            bottom: ${this.paddingBottom}px;
             width: ${this.width}px;
             pointer-events: none;
             z-index: 0;
             opacity: ${this.opacity};
             transition: opacity 0.3s ease;
+            visibility: hidden;
         `;
 
         // Container that holds the inlined SVG (we replace its innerHTML
@@ -107,6 +113,37 @@ export class Watermark {
         chartArea.appendChild(wrap);
         this._wrap = wrap;
         this._svgHost = host;
+    }
+
+    /**
+     * Set a callback that returns the main price pane's rect: {x, y, w, h}.
+     * Used to position the watermark INSIDE the main pane only.
+     */
+    setRegionResolver(fn) {
+        this._getMainRegionRect = fn;
+        this.updatePosition();
+    }
+
+    /**
+     * Reposition the watermark inside the main pane's rect.
+     * Called after every render (or on resize / pan / zoom).
+     */
+    updatePosition() {
+        if (!this._wrap || !this._getMainRegionRect) return;
+        const rect = this._getMainRegionRect();
+        if (!rect) return;
+        // Anchor: bottom-left of the MAIN pane (above the time axis strip and
+        // any indicator panes). Use `top` (instead of `bottom`) so the
+        // watermark is positioned within the main pane, NOT within the
+        // entire chartArea (which would put it on the time axis).
+        const bottomY = rect.y + rect.h - this.paddingBottom;
+        // The watermark's natural rendered height is ~ width * (80/354) ≈ width*0.226.
+        // We compute the top so the bottom edge sits at `bottomY`.
+        const wmHeight = this.width * (80 / 354);
+        const topY = Math.max(rect.y + 4, bottomY - wmHeight);
+        this._wrap.style.top = topY + 'px';
+        this._wrap.style.left = (rect.x + this.paddingLeft) + 'px';
+        this._wrap.style.visibility = 'visible';
     }
 
     /**

@@ -113,6 +113,37 @@ export class EventManager {
         const timeAxisRegion = regions.find(r => r.id === 'timeaxis');
         const inTimeAxis = timeAxisRegion && y >= timeAxisRegion.rect.y && y <= timeAxisRegion.rect.y + timeAxisRegion.rect.h;
 
+        // Detect DOUBLE-CLICK on the price axis or time axis → reset that axis
+        // to auto-fit. TradingView behavior: dblclick on price axis resets the
+        // vertical scale; dblclick on time axis resets the horizontal zoom.
+        const now = performance.now();
+        const isDoubleClick = (now - (this._lastClickTime || 0)) < 350
+            && Math.abs(x - (this._lastClickX || -9999)) < 5
+            && Math.abs(y - (this._lastClickY || -9999)) < 5;
+        this._lastClickTime = now;
+        this._lastClickX = x;
+        this._lastClickY = y;
+
+        if (isDoubleClick) {
+            if (inPriceAxis) {
+                // Reset price scale to auto-fit.
+                vp.autoScale = true;
+                vp.updatePriceRange(this.engine.dataManager);
+                this.engine.requestRender();
+                this.activeAction = 'none';
+                return;
+            } else if (inTimeAxis) {
+                // Reset horizontal zoom to default bar spacing + scroll to right.
+                vp.barSpacing = 8;
+                vp.rightOffset = 10;
+                vp.scrollToRight(this.engine.dataManager.size);
+                vp.updatePriceRange(this.engine.dataManager);
+                this.engine.requestRender();
+                this.activeAction = 'none';
+                return;
+            }
+        }
+
         // Decide what action to start
         if (this.engine.activeTool) {
             this.activeAction = 'draw';
@@ -122,9 +153,24 @@ export class EventManager {
             this.activeAction = 'scale-price';
             this._scaleStartRange = { ...vp.priceRange };
             this._scaleStartY = y;
+            // Remember the Y position of the cursor relative to the main pane,
+            // so the price under the cursor stays fixed while scaling.
+            const mainRegion = regions.find(r => r.id === 'main');
+            if (mainRegion) {
+                const cursorYInMain = y - mainRegion.rect.y;
+                const priceAtCursor = vp.yToPrice(cursorYInMain);
+                this._scaleAnchorPrice = priceAtCursor;
+            } else {
+                this._scaleAnchorPrice = null;
+            }
         } else if (inTimeAxis) {
-            // FIX: Time axis drag = horizontal pan only (no vertical price shift)
-            this.activeAction = 'pan-time';
+            // Time-axis drag = horizontal ZOOM (bar spacing), anchored to the
+            // LEFT edge (first visible candle). Drag RIGHT → zoom in (wider
+            // candles, fewer bars). Drag LEFT → zoom out (more bars).
+            // This mirrors the +/- toolbar buttons but is more direct.
+            this.activeAction = 'scale-time';
+            this._scaleStartX = x;
+            this._scaleStartSpacing = vp.barSpacing;
         } else if (e.button === 2 || e.shiftKey) {
             // Right button or shift = force pan
             this.activeAction = 'pan';
@@ -163,31 +209,60 @@ export class EventManager {
                 }
             }
 
-            if (this.activeAction === 'pan' || this.activeAction === 'pan-time') {
-                // FIX: chart-area pan and time-axis pan are HORIZONTAL ONLY.
-                // The old dy price-shift logic was removed — it incorrectly
-                // shifted the price range when dragging vertically on the
-                // chart area or time axis. Price scaling is now done only
-                // via the 'scale-price' action (price axis drag).
+            if (this.activeAction === 'pan') {
+                // Chart-area pan = HORIZONTAL ONLY. Price scaling is done
+                // via the 'scale-price' action (price axis drag), and time-
+                // axis zoom is done via 'scale-time' (time axis drag).
                 this.engine.viewport.panBy(dx);
                 this.engine.viewport.updatePriceRange(this.engine.dataManager);
             } else if (this.activeAction === 'scale-price') {
-                // FIX: Price axis drag = SCALE the price range (zoom).
-                // Drag down (dy>0) → compress range (zoom in, smaller span).
-                // Drag up (dy<0) → expand range (zoom out, larger span).
-                // Disables autoScale so the user's manual scale persists.
-                // FIX (bug found in test): the original factor used
-                // `exp(+totalDy / ...)` which made drag DOWN EXPAND the
-                // span — the opposite of the TradingView-style spec.
-                // Inverted the sign so drag down = compress (zoom in)
-                // and drag up = expand (zoom out).
+                // TradingView-style price-axis scaling:
+                //   - Drag DOWN (dy>0) → compress the visible price range (zoom IN).
+                //   - Drag UP (dy<0) → expand the price range (zoom OUT).
+                // The price UNDER THE CURSOR stays fixed — the range pivots
+                // around the cursor's price, not the range midpoint. This is
+                // the TradingView default behavior.
                 const vp = this.engine.viewport;
                 vp.autoScale = false;
                 const totalDy = y - this._scaleStartY;
+                // Sensitivity: ~150px of drag = full 2x zoom.
                 const factor = Math.exp(-totalDy / Math.max(50, vp.priceHeight));
-                const mid = (this._scaleStartRange.min + this._scaleStartRange.max) / 2;
-                const halfSpan = (this._scaleStartRange.max - this._scaleStartRange.min) / 2 * factor;
-                vp.priceRange = { min: mid - halfSpan, max: mid + halfSpan };
+                const startMin = this._scaleStartRange.min;
+                const startMax = this._scaleStartRange.max;
+                const startSpan = startMax - startMin;
+                const newSpan = Math.max(startSpan * factor, 1e-9);
+                // Pivot around the cursor's price (if known), else use mid.
+                const pivot = (typeof this._scaleAnchorPrice === 'number' && isFinite(this._scaleAnchorPrice))
+                    ? this._scaleAnchorPrice
+                    : (startMin + startMax) / 2;
+                // The cursor's price should map to the same screen Y. We
+                // keep the pivot's relative position in the new range equal
+                // to its position in the original range.
+                const pivotT = (pivot - startMin) / startSpan;
+                const newMin = pivot - pivotT * newSpan;
+                const newMax = newMin + newSpan;
+                vp.priceRange = { min: newMin, max: newMax };
+            } else if (this.activeAction === 'scale-time') {
+                // Time-axis drag = horizontal zoom (bar spacing). Drag LEFT
+                // (dx<0) → zoom OUT (more bars visible). Drag RIGHT (dx>0) →
+                // zoom IN (fewer bars, wider candles). The first visible bar
+                // (left edge) stays fixed — like pressing +/- on the toolbar
+                // but anchored to the LEFT edge of the chart.
+                const vp = this.engine.viewport;
+                const totalDx = x - this._scaleStartX;
+                // Sensitivity: 200px of drag = ~2x zoom.
+                const factor = Math.exp(totalDx / 200);
+                const newSpacing = MathUtils.clamp(
+                    this._scaleStartSpacing * factor,
+                    vp.minBarSpacing,
+                    vp.maxBarSpacing
+                );
+                // Keep the LEFT visible bar index stable so the zoom appears
+                // anchored to the first candle (TradingView "magnet left").
+                const leftIdx = vp.leftEdge;
+                vp.barSpacing = newSpacing;
+                vp.scrollPosition = leftIdx;
+                vp.updatePriceRange(this.engine.dataManager);
             } else if (this.activeAction === 'draw') {
                 this.engine.drawingManager.onPointerMove(x, y);
             } else if (this.activeAction === 'select-drag' && this._dragTarget) {
@@ -202,10 +277,40 @@ export class EventManager {
             } else if (this.engine.drawingManager) {
                 this.engine.drawingManager.updateHover(x, y);
             }
+            // Update pane-button hover state so the buttons feel interactive.
+            this._updatePaneButtonHover(x, y);
         }
 
         this.engine.crosshair.update(x, y, this.pointerInside);
         this.engine.requestRender();
+    }
+
+    /**
+     * Update the `hovered` flag on every pane button based on the current
+     * pointer position. Called on every hover move so the buttons light up
+     * as the cursor passes over them — making them feel interactive.
+     */
+    _updatePaneButtonHover(x, y) {
+        const panes = this.engine.indicatorManager.paneManager.panes;
+        const regions = this.engine.indicatorManager.paneManager.getRegions();
+        const regionByPane = new Map();
+        for (const r of regions) regionByPane.set(r.pane, r.rect);
+        let changed = false;
+        for (const pane of panes) {
+            if (!pane._buttons || pane._buttons.length === 0) continue;
+            const rect = regionByPane.get(pane);
+            if (!rect) continue;
+            for (const btn of pane._buttons) {
+                const btnY = rect.y + btn.y;
+                const isHover = x >= btn.x && x <= btn.x + btn.w
+                    && y >= btnY && y <= btnY + btn.h;
+                if (btn.hovered !== isHover) {
+                    btn.hovered = isHover;
+                    changed = true;
+                }
+            }
+        }
+        if (changed) this.engine.requestRender();
     }
 
     _onPointerUp(e) {
