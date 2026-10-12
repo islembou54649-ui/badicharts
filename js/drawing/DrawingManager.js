@@ -220,8 +220,29 @@ export class DrawingManager {
     }
 
     cancelDrawing() {
+        // Cancel any in-progress drawing. If the active drawing supports
+        // cancel() (e.g. Polyline), call it; otherwise just discard.
+        if (this._currentDrawing && typeof this._currentDrawing.cancel === 'function') {
+            this._currentDrawing.cancel();
+        }
         this._currentDrawing = null;
         this.activeTool = null;
+    }
+
+    /**
+     * Finish the in-progress multi-point drawing (e.g. Polyline).
+     * Called on double-click or Enter. For drawings that don't have a
+     * finish() method (e.g. TrendLine), this is a no-op.
+     */
+    finishDrawing() {
+        if (this._currentDrawing && typeof this._currentDrawing.finish === 'function') {
+            this._currentDrawing.finish();
+            if (this._currentDrawing.isComplete) {
+                this.add(this._currentDrawing);
+                this._currentDrawing = null;
+                if (this._onToolComplete) this._onToolComplete();
+            }
+        }
     }
 
     /**

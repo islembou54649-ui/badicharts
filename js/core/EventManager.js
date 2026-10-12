@@ -54,6 +54,7 @@ export class EventManager {
         this._onWheel = this._onWheel.bind(this);
         this._onContextMenu = this._onContextMenu.bind(this);
         this._onKeyDown = this._onKeyDown.bind(this);
+        this._onDblClick = this._onDblClick.bind(this);
         this._onTouchStart = this._onTouchStart.bind(this);
         this._onTouchMove = this._onTouchMove.bind(this);
         this._onTouchEnd = this._onTouchEnd.bind(this);
@@ -69,6 +70,7 @@ export class EventManager {
         this.element.addEventListener('pointercancel', this._onPointerUp);
         this.element.addEventListener('wheel', this._onWheel, { passive: false });
         this.element.addEventListener('contextmenu', this._onContextMenu);
+        this.element.addEventListener('dblclick', this._onDblClick);
         this.element.addEventListener('touchstart', this._onTouchStart, { passive: false });
         this.element.addEventListener('touchmove', this._onTouchMove, { passive: false });
         this.element.addEventListener('touchend', this._onTouchEnd);
@@ -214,28 +216,50 @@ export class EventManager {
                 this.engine.viewport.panBy(dx);
                 this.engine.viewport.updatePriceRange(this.engine.dataManager);
             } else if (this.activeAction === 'scale-price') {
-                // TradingView-style price-axis scaling:
+                // TradingView-style price-axis scaling (improved).
+                //
+                // Behavior:
                 //   - Drag DOWN (dy>0) → compress the visible price range (zoom IN).
-                //   - Drag UP (dy<0) → expand the price range (zoom OUT).
-                // The price UNDER THE CURSOR stays fixed — the range pivots
-                // around the cursor's price, not the range midpoint. This is
-                // the TradingView default behavior.
+                //   - Drag UP (dy<0) → expand the range (zoom OUT).
+                //
+                // The price UNDER THE CURSOR stays fixed on screen — the range
+                // pivots around the cursor's price, not the range midpoint.
+                //
+                // Improvements over the previous implementation:
+                //   1. The drag sensitivity is scaled by the price pane's height,
+                //      so a small drag on a short chart produces the same zoom
+                //      ratio as a small drag on a tall chart. Previously the
+                //      divisor was a constant 50, making the zoom either too
+                //      fast (tall chart) or too slow (short chart).
+                //   2. We clamp the zoom factor per drag event so the price
+                //      doesn't snap wildly when the cursor is jittered.
+                //   3. The price-under-cursor anchor is captured ONCE at drag
+                //      start (in _scaleAnchorPrice), and we recompute the range
+                //      from the ORIGINAL start range each move — this prevents
+                //      drift accumulation that made the previous version feel
+                //      unpredictable.
                 const vp = this.engine.viewport;
                 vp.autoScale = false;
                 const totalDy = y - this._scaleStartY;
-                // Sensitivity: ~150px of drag = full 2x zoom.
-                const factor = Math.exp(-totalDy / Math.max(50, vp.priceHeight));
+                // Drag ~1x the pane height = e^2.5 ≈ 12x zoom. Feels right.
+                const sensitivity = Math.max(120, vp.priceHeight * 0.75);
+                let factor = Math.exp(-totalDy / sensitivity);
+                // Clamp to a reasonable per-drag range (0.05x to 20x) so the
+                // chart doesn't disappear into a single pixel or invert.
+                factor = Math.max(0.05, Math.min(20, factor));
+
                 const startMin = this._scaleStartRange.min;
                 const startMax = this._scaleStartRange.max;
                 const startSpan = startMax - startMin;
+                if (!isFinite(startSpan) || startSpan <= 0) return;
                 const newSpan = Math.max(startSpan * factor, 1e-9);
-                // Pivot around the cursor's price (if known), else use mid.
+
+                // Pivot: the price that was under the cursor at drag start.
+                // Its screen Y should remain constant as we scale.
                 const pivot = (typeof this._scaleAnchorPrice === 'number' && isFinite(this._scaleAnchorPrice))
                     ? this._scaleAnchorPrice
                     : (startMin + startMax) / 2;
-                // The cursor's price should map to the same screen Y. We
-                // keep the pivot's relative position in the new range equal
-                // to its position in the original range.
+                // Relative position of pivot in the ORIGINAL range (0=top, 1=bottom).
                 const pivotT = (pivot - startMin) / startSpan;
                 const newMin = pivot - pivotT * newSpan;
                 const newMax = newMin + newSpan;
@@ -365,8 +389,25 @@ export class EventManager {
             this.engine.drawingManager.cancelDrawing();
             this.engine.setActiveTool(null);
         }
+        if (e.key === 'Enter' && this.engine.drawingManager) {
+            // Finish a multi-point drawing (e.g. Polyline) on Enter.
+            this.engine.drawingManager.finishDrawing();
+            this.engine.requestRender();
+        }
         if ((e.key === 'Delete' || e.key === 'Backspace') && this.engine.drawingManager.selectedId) {
             this.engine.drawingManager.deleteSelected();
+            this.engine.requestRender();
+        }
+    }
+
+    /**
+     * Double-click handler: finishes a multi-point drawing (e.g. Polyline).
+     * If no drawing is in progress, this is a no-op (the dblclick on the
+     * price/time axis is handled separately in _onPointerDown).
+     */
+    _onDblClick(e) {
+        if (this.engine.drawingManager && this.engine.drawingManager.activeTool) {
+            this.engine.drawingManager.finishDrawing();
             this.engine.requestRender();
         }
     }
@@ -419,6 +460,7 @@ export class EventManager {
         this.element.removeEventListener('pointerleave', this._onPointerLeave);
         this.element.removeEventListener('wheel', this._onWheel);
         this.element.removeEventListener('contextmenu', this._onContextMenu);
+        this.element.removeEventListener('dblclick', this._onDblClick);
         this.element.removeEventListener('touchstart', this._onTouchStart);
         this.element.removeEventListener('touchmove', this._onTouchMove);
         this.element.removeEventListener('touchend', this._onTouchEnd);

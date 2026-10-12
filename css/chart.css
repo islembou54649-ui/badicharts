@@ -129,17 +129,35 @@
     gap: 2px;
 }
 .ac-sch-swatch {
-    width: 16px; height: 16px;
-    border-radius: 3px;
-    border: 1px solid rgba(255,255,255,0.15);
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.18);
     cursor: pointer;
     padding: 0;
     flex-shrink: 0;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ac-muted);
+}
+.ac-sch-swatch:hover {
+    transform: scale(1.15);
+    border-color: rgba(255,255,255,0.4);
 }
 .ac-sch-swatch.active {
     border: 2px solid #fff;
-    transform: scale(1.15);
-    box-shadow: 0 0 4px rgba(255,255,255,0.5);
+    transform: scale(1.18);
+    box-shadow: 0 0 6px rgba(255,255,255,0.6);
+}
+.ac-sch-swatch-nofill {
+    background: transparent !important;
+    border: 1.5px dashed rgba(255,255,255,0.3);
+}
+.ac-sch-swatch-nofill.active {
+    border-color: #fff;
+    border-style: solid;
+    color: var(--ac-text);
 }
 .ac-sch-range {
     width: 70px;
