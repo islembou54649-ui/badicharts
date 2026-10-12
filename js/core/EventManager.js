@@ -243,15 +243,17 @@ export class EventManager {
                 const newMax = newMin + newSpan;
                 vp.priceRange = { min: newMin, max: newMax };
             } else if (this.activeAction === 'scale-time') {
-                // Time-axis drag = horizontal zoom (bar spacing). Drag LEFT
-                // (dx<0) → zoom OUT (more bars visible). Drag RIGHT (dx>0) →
-                // zoom IN (fewer bars, wider candles). The first visible bar
-                // (left edge) stays fixed — like pressing +/- on the toolbar
-                // but anchored to the LEFT edge of the chart.
+                // Time-axis drag = horizontal zoom (bar spacing).
+                // Drag LEFT (dx<0) → zoom IN (wider candles, fewer bars).
+                // Drag RIGHT (dx>0) → zoom OUT (narrower candles, more bars).
+                // This matches the natural gesture: pinching inward = zoom in,
+                // expanding outward = zoom out. The first visible bar (left
+                // edge) stays fixed — the zoom is anchored to the LEFT edge.
                 const vp = this.engine.viewport;
                 const totalDx = x - this._scaleStartX;
                 // Sensitivity: 200px of drag = ~2x zoom.
-                const factor = Math.exp(totalDx / 200);
+                // Negative sign so drag LEFT (dx<0) → factor>1 → zoom IN.
+                const factor = Math.exp(-totalDx / 200);
                 const newSpacing = MathUtils.clamp(
                     this._scaleStartSpacing * factor,
                     vp.minBarSpacing,

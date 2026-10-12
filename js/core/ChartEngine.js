@@ -421,57 +421,273 @@ export class ChartEngine {
     /**
      * Draw the pane title bar with indicator control buttons.
      *
-     * CHANGED per user request: previously this was drawn at pane-local y=4,
-     * which collided with the top info strip (drawn at canvas y=8). The
-     * indicator labels + buttons are now drawn at y=28 — directly BELOW the
-     * top info strip — so the two strips no longer overlap.
-     *
-     * The main pane uses canvas-global y=28 (since its pane-local y=0 is the
-     * top of the canvas). Indicator panes (volume, RSI, etc.) still draw at
-     * their own pane-local y=4 because they sit BELOW the main pane and have
-     * their own title area.
+     * Features:
+     * - Each indicator gets its OWN name label + button group, so the user
+     *   can always see which indicator the buttons belong to.
+     * - The eye icon (show/hide) is drawn as a canvas path — a proper eye
+     *   shape, not a Unicode character. Open eye = visible, closed eye = hidden.
+     * - The settings icon is drawn as three sliders (horizontal lines with
+     *   dots), replacing the old gear emoji.
+     * - Indicator name stays visible even when the indicator is hidden —
+     *   it's just dimmed so the user knows it's there but off.
+     * - Hover animation is SMOOTH: each button has a `hoverT` (0→1) that
+     *   lerps every frame, so the background fades in/out gradually instead
+     *   of snapping on/off.
      */
     _drawPaneTitleWithControls(ctx, pane, theme) {
-        const buttons = this._getPaneButtons(pane);
-        // Main pane: y=28 (below the top info strip at y=8).
-        // Indicator panes: y=4 (their own pane-local top).
         const yOffset = pane.isMain ? 28 : 4;
-        // Title text
+        let x = 8;
+
+        // For the main pane, show the pane title ("Price") only if there are
+        // NO overlay indicators. If there are overlays, each overlay gets
+        // its own name+buttons row, and the "Price" label is redundant.
+        const indicators = pane.isMain
+            ? this.indicatorManager.indicators.filter(i => i.type === 'overlay')
+            : pane.indicators;
+
+        if (indicators.length === 0 && pane.isMain) {
+            // No overlays — just show "Price" as before.
+            ctx.font = "bold 11px 'Inter', sans-serif";
+            ctx.fillStyle = theme.textColor;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillText(pane.title, x, yOffset);
+            pane._buttons = [];
+            return;
+        }
+
+        // Build the full button list (with positions) for ALL indicators.
+        const allButtons = [];
+        // Draw each indicator's name + its 3 buttons (eye / sliders / remove).
+        // (The ⇅ reverse button is omitted — it's rarely used and clutters the row.)
         ctx.font = "bold 11px 'Inter', sans-serif";
-        ctx.fillStyle = theme.textColor;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
-        ctx.fillText(pane.title, 8, yOffset);
-        let x = 8 + ctx.measureText(pane.title).width + 12;
-        // Buttons
-        for (const btn of buttons) {
-            btn.x = x;
-            btn.y = yOffset - 1;
-            btn.w = 18;
-            btn.h = 16;
-            // Button background on hover/active — now with a subtle rounded
-            // background to feel interactive.
-            if (btn.hovered) {
-                ctx.fillStyle = theme.toolbarBtn;
-                ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
-            } else if (btn.active) {
-                // Active buttons get a subtle tinted background so they
-                // look "pressed"/"on".
-                ctx.fillStyle = theme.upColor;
-                ctx.globalAlpha = 0.12;
-                ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+
+        for (const ind of indicators) {
+            // --- Indicator name (always visible; dimmed if hidden) ---
+            const label = ind.name || 'Indicator';
+            ctx.fillStyle = ind.visible ? theme.textColor : theme.mutedText;
+            ctx.globalAlpha = ind.visible ? 1.0 : 0.5;
+            ctx.fillText(label, x, yOffset);
+            const labelW = ctx.measureText(label).width;
+            ctx.globalAlpha = 1;
+            x += labelW + 6;
+
+            // --- Eye (show/hide) button ---
+            const eyeBtn = {
+                id: 'toggle', indicatorId: ind.id,
+                x: x, y: yOffset - 1, w: 18, h: 16,
+                hovered: false, active: ind.visible,
+                iconType: 'eye',
+                visible: ind.visible,
+                hoverT: 0
+            };
+            allButtons.push(eyeBtn);
+            x += 18 + 4;
+
+            // --- Sliders (settings) button ---
+            const setBtn = {
+                id: 'settings', indicatorId: ind.id,
+                x: x, y: yOffset - 1, w: 18, h: 16,
+                hovered: false, active: false,
+                iconType: 'sliders',
+                hoverT: 0
+            };
+            allButtons.push(setBtn);
+            x += 18 + 4;
+
+            // --- Remove (✕) button ---
+            const rmBtn = {
+                id: 'remove', indicatorId: ind.id,
+                x: x, y: yOffset - 1, w: 18, h: 16,
+                hovered: false, active: false,
+                iconType: 'cross',
+                hoverT: 0
+            };
+            allButtons.push(rmBtn);
+            x += 18 + 12; // extra gap between indicator groups
+        }
+
+        // --- Merge with existing button hover/hoverT state ---
+        // Preserve hover state and animation progress from the previous frame.
+        if (pane._buttons) {
+            const prevMap = new Map();
+            for (const b of pane._buttons) {
+                prevMap.set(b.indicatorId + ':' + b.id, b);
+            }
+            for (const btn of allButtons) {
+                const prev = prevMap.get(btn.indicatorId + ':' + btn.id);
+                if (prev) {
+                    btn.hovered = prev.hovered || false;
+                    btn.hoverT = prev.hoverT ?? 0;
+                }
+            }
+        }
+
+        // --- Animate hoverT towards hovered?1:0 ---
+        let needsRerender = false;
+        for (const btn of allButtons) {
+            const target = btn.hovered ? 1 : 0;
+            const speed = 0.18; // per-frame lerp factor (~150ms to full)
+            const newT = btn.hoverT + (target - btn.hoverT) * speed;
+            if (Math.abs(newT - btn.hoverT) > 0.005) needsRerender = true;
+            btn.hoverT = newT;
+            // Snap to 0/1 when close enough
+            if (Math.abs(target - btn.hoverT) < 0.01) btn.hoverT = target;
+        }
+
+        // --- Draw buttons ---
+        for (const btn of allButtons) {
+            // Background: interpolate opacity from hoverT + active state
+            let bgAlpha = 0;
+            if (btn.hoverT > 0.01) bgAlpha = Math.max(bgAlpha, btn.hoverT * 0.7);
+            if (btn.active) bgAlpha = Math.max(bgAlpha, 0.15);
+
+            if (bgAlpha > 0.01) {
+                // Rounded background
+                ctx.fillStyle = btn.active ? theme.upColor : theme.toolbarBtn;
+                ctx.globalAlpha = bgAlpha;
+                this._roundRect(ctx, btn.x, btn.y, btn.w, btn.h, 3);
+                ctx.fill();
                 ctx.globalAlpha = 1;
             }
-            // Icon
-            ctx.font = "12px 'Inter', sans-serif";
-            ctx.fillStyle = btn.active ? theme.upColor : theme.mutedText;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(btn.icon, btn.x + btn.w / 2, btn.y + btn.h / 2 + 1);
-            x += btn.w + 4;
+
+            // Icon color: brighter on hover, colored when active
+            const iconColor = btn.active
+                ? theme.upColor
+                : (btn.hoverT > 0.3 ? theme.textColor : theme.mutedText);
+            // Slight scale-up on hover for a "pop" effect
+            const scale = 1 + btn.hoverT * 0.12;
+
+            ctx.save();
+            const cx = btn.x + btn.w / 2;
+            const cy = btn.y + btn.h / 2 + 1;
+            ctx.translate(cx, cy);
+            ctx.scale(scale, scale);
+            ctx.translate(-cx, -cy);
+            ctx.strokeStyle = iconColor;
+            ctx.fillStyle = iconColor;
+
+            switch (btn.iconType) {
+                case 'eye':
+                    this._drawEyeIcon(ctx, btn.x, btn.y, btn.w, btn.h, btn.visible);
+                    break;
+                case 'sliders':
+                    this._drawSlidersIcon(ctx, btn.x, btn.y, btn.w, btn.h);
+                    break;
+                case 'cross':
+                    this._drawCrossIcon(ctx, btn.x, btn.y, btn.w, btn.h);
+                    break;
+            }
+            ctx.restore();
         }
+
         // Store buttons for hit-testing
-        pane._buttons = buttons;
+        pane._buttons = allButtons;
+
+        // If any button is mid-animation, request another render frame so
+        // the hover transition is smooth.
+        if (needsRerender) this.requestRender();
+    }
+
+    /**
+     * Draw an eye icon — open (visible) or closed (hidden).
+     * Uses canvas paths for a clean, scalable look.
+     */
+    _drawEyeIcon(ctx, btnX, btnY, btnW, btnH, open) {
+        const cx = btnX + btnW / 2;
+        const cy = btnY + btnH / 2;
+        const w = btnW * 0.35;  // half-width of the eye
+        const h = btnH * 0.2;   // half-height
+
+        ctx.lineWidth = 1.4;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        if (open) {
+            // Almond shape (eye outline)
+            ctx.beginPath();
+            ctx.moveTo(cx - w, cy);
+            ctx.quadraticCurveTo(cx, cy - h * 1.8, cx + w, cy);
+            ctx.quadraticCurveTo(cx, cy + h * 1.8, cx - w, cy);
+            ctx.stroke();
+            // Pupil (filled circle)
+            ctx.beginPath();
+            ctx.arc(cx, cy, Math.max(1.5, w * 0.22), 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            // Closed eye: a curved line (closed eyelid) with a slash
+            ctx.beginPath();
+            ctx.moveTo(cx - w, cy);
+            ctx.quadraticCurveTo(cx, cy + h * 1.5, cx + w, cy);
+            ctx.stroke();
+            // Diagonal slash through it
+            ctx.beginPath();
+            ctx.moveTo(cx - w * 0.6, cy - h * 1.2);
+            ctx.lineTo(cx + w * 0.6, cy + h * 1.2);
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+        }
+    }
+
+    /**
+     * Draw a sliders icon (three horizontal lines with dots) — used for settings.
+     */
+    _drawSlidersIcon(ctx, btnX, btnY, btnW, btnH) {
+        const cx = btnX + btnW / 2;
+        const cy = btnY + btnH / 2;
+        const w = btnW * 0.32;
+
+        ctx.lineWidth = 1.3;
+        ctx.lineCap = 'round';
+
+        const lines = [
+            { y: cy - btnH * 0.22, dotX: cx + btnW * 0.08 },
+            { y: cy, dotX: cx - btnW * 0.06 },
+            { y: cy + btnH * 0.22, dotX: cx + btnW * 0.04 }
+        ];
+
+        for (const line of lines) {
+            ctx.beginPath();
+            ctx.moveTo(cx - w, line.y);
+            ctx.lineTo(cx + w, line.y);
+            ctx.stroke();
+            // Handle dot
+            ctx.beginPath();
+            ctx.arc(line.dotX, line.y, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    /**
+     * Draw a cross (✕) icon — used for remove.
+     */
+    _drawCrossIcon(ctx, btnX, btnY, btnW, btnH) {
+        const cx = btnX + btnW / 2;
+        const cy = btnY + btnH / 2;
+        const s = btnW * 0.25;
+
+        ctx.lineWidth = 1.4;
+        ctx.lineCap = 'round';
+
+        ctx.beginPath();
+        ctx.moveTo(cx - s, cy - s);
+        ctx.lineTo(cx + s, cy + s);
+        ctx.moveTo(cx + s, cy - s);
+        ctx.lineTo(cx - s, cy + s);
+        ctx.stroke();
+    }
+
+    _roundRect(ctx, x, y, w, h, r) {
+        const rr = Math.min(r, w / 2, h / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + rr, y);
+        ctx.arcTo(x + w, y, x + w, y + h, rr);
+        ctx.arcTo(x + w, y + h, x, y + h, rr);
+        ctx.arcTo(x, y + h, x, y, rr);
+        ctx.arcTo(x, y, x + w, y, rr);
+        ctx.closePath();
     }
 
     /**
