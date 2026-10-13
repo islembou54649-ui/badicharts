@@ -662,7 +662,9 @@ export function drawAnimatedCandles(ctx, vp, dm, theme, manager) {
     const progress = elapsed / ANIM_DURATION; // 0..1
 
     const barSpacing = vp.barSpacing;
-    if (barSpacing < 2) return;
+    // When very zoomed out, skip the animation overlay — it would just
+    // create visual noise on top of the close line.
+    if (barSpacing < 3) return;
 
     const leftIdx = Math.max(0, Math.floor(vp.leftEdge));
     const rightIdx = Math.min(n - 1, Math.ceil(vp.rightEdge));
@@ -695,9 +697,14 @@ export function drawAnimatedCandles(ctx, vp, dm, theme, manager) {
         const yHigh = vp.priceToY(animHigh);
         const yLow = vp.priceToY(animLow);
 
-        // Draw a glow around the animated candle.
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 8 * (1 - ease); // glow fades as it completes
+        // Subtle glow only — reduced blur to avoid noise when zoomed.
+        // Only apply glow when the candle is mid-growth (ease < 0.95).
+        if (ease < 0.95) {
+            ctx.shadowColor = color;
+            ctx.shadowBlur = Math.min(4, barSpacing * 0.3); // scaled, capped
+        } else {
+            ctx.shadowBlur = 0;
+        }
 
         // Wick
         ctx.strokeStyle = color;
@@ -717,9 +724,11 @@ export function drawAnimatedCandles(ctx, vp, dm, theme, manager) {
     }
     ctx.restore();
 
-    // Request next frame to keep the animation going.
-    if (manager._engine) manager._engine.requestRender();
-    else if (typeof manager.requestRender === 'function') manager.requestRender();
+    // Request next frame to keep the animation going — but only if the
+    // chart type is still 'animatedCandles'.
+    if (manager._engine && manager._engine.getChartType() === 'animatedCandles') {
+        manager._engine.requestRender();
+    }
 }
 
 // Registry of advanced chart types and their draw functions.
