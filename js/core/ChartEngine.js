@@ -41,6 +41,7 @@ import { StatusBar } from '../ui/StatusBar.js';
 import { Toolbar } from '../ui/Toolbar.js';
 import { ThemeManager } from '../ui/Theme.js';
 import { Watermark } from '../ui/Watermark.js';
+import { BackgroundManager } from '../ui/BackgroundManager.js';
 import { DrawingManager } from '../drawing/DrawingManager.js';
 import { DrawingSettingsCard } from '../ui/DrawingSettingsCard.js';
 import { IndicatorManager } from '../indicators/IndicatorManager.js';
@@ -89,6 +90,9 @@ export class ChartEngine {
         // Series
         this.candleSeries = new CandleSeries();
         this.chartTypeManager = new ChartTypeManager();
+        // Give the ChartTypeManager a reference to the engine so it can
+        // request re-renders (needed for animated chart types).
+        this.chartTypeManager._engine = this;
 
         // Drawing manager
         this.drawingManager = new DrawingManager();
@@ -107,6 +111,10 @@ export class ChartEngine {
 
         // Brand watermark — drawn on the shared canvas, behind the candles.
         this.watermark = new Watermark();
+
+        // Background manager — supports image/video/SVG backgrounds behind
+        // the chart with opacity and contrast controls.
+        this.background = new BackgroundManager(this.chartArea);
 
         // Performance
         this.perf = new Performance();
@@ -593,90 +601,135 @@ export class ChartEngine {
 
     /**
      * Draw an eye icon — open (visible) or closed (hidden).
-     * Uses canvas paths for a clean, scalable look.
+     * Professional SVG-style design with clean curves.
      */
     _drawEyeIcon(ctx, btnX, btnY, btnW, btnH, open) {
         const cx = btnX + btnW / 2;
         const cy = btnY + btnH / 2;
-        const w = btnW * 0.35;  // half-width of the eye
-        const h = btnH * 0.2;   // half-height
+        const w = btnW * 0.38;  // half-width of the eye
+        const h = btnH * 0.22;  // half-height
 
-        ctx.lineWidth = 1.4;
+        ctx.lineWidth = 1.5;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
 
         if (open) {
-            // Almond shape (eye outline)
+            // Eye outline — smooth almond shape
             ctx.beginPath();
             ctx.moveTo(cx - w, cy);
-            ctx.quadraticCurveTo(cx, cy - h * 1.8, cx + w, cy);
-            ctx.quadraticCurveTo(cx, cy + h * 1.8, cx - w, cy);
+            ctx.quadraticCurveTo(cx, cy - h * 1.6, cx + w, cy);
+            ctx.quadraticCurveTo(cx, cy + h * 1.6, cx - w, cy);
             ctx.stroke();
-            // Pupil (filled circle)
+            // Iris (ring)
+            const irisR = Math.max(2, w * 0.28);
             ctx.beginPath();
-            ctx.arc(cx, cy, Math.max(1.5, w * 0.22), 0, Math.PI * 2);
+            ctx.arc(cx, cy, irisR, 0, Math.PI * 2);
+            ctx.stroke();
+            // Pupil (filled dot)
+            ctx.beginPath();
+            ctx.arc(cx, cy, Math.max(1.2, irisR * 0.5), 0, Math.PI * 2);
             ctx.fill();
+            // Highlight dot (top-right of iris)
+            ctx.save();
+            ctx.globalAlpha = 0.8;
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(cx + irisR * 0.3, cy - irisR * 0.3, Math.max(0.8, irisR * 0.2), 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
         } else {
-            // Closed eye: a curved line (closed eyelid) with a slash
+            // Closed eye — flat line with a small downward curve in the middle
             ctx.beginPath();
             ctx.moveTo(cx - w, cy);
-            ctx.quadraticCurveTo(cx, cy + h * 1.5, cx + w, cy);
+            ctx.quadraticCurveTo(cx - w * 0.3, cy + h * 0.5, cx, cy + h * 0.3);
+            ctx.quadraticCurveTo(cx + w * 0.3, cy + h * 0.5, cx + w, cy);
             ctx.stroke();
-            // Diagonal slash through it
+            // Diagonal slash
             ctx.beginPath();
-            ctx.moveTo(cx - w * 0.6, cy - h * 1.2);
-            ctx.lineTo(cx + w * 0.6, cy + h * 1.2);
-            ctx.lineWidth = 1.2;
+            ctx.moveTo(cx - w * 0.7, cy - h * 1.3);
+            ctx.lineTo(cx + w * 0.7, cy + h * 1.3);
+            ctx.lineWidth = 1.3;
             ctx.stroke();
         }
     }
 
     /**
-     * Draw a sliders icon (three horizontal lines with dots) — used for settings.
+     * Draw a gear icon (cog) — used for settings.
+     * Professional 8-tooth gear with a center hole.
      */
     _drawSlidersIcon(ctx, btnX, btnY, btnW, btnH) {
         const cx = btnX + btnW / 2;
         const cy = btnY + btnH / 2;
-        const w = btnW * 0.32;
+        const outerR = btnW * 0.32;
+        const innerR = outerR * 0.55;
+        const teeth = 8;
+        const toothDepth = outerR * 0.25;
 
         ctx.lineWidth = 1.3;
         ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
 
-        const lines = [
-            { y: cy - btnH * 0.22, dotX: cx + btnW * 0.08 },
-            { y: cy, dotX: cx - btnW * 0.06 },
-            { y: cy + btnH * 0.22, dotX: cx + btnW * 0.04 }
-        ];
-
-        for (const line of lines) {
-            ctx.beginPath();
-            ctx.moveTo(cx - w, line.y);
-            ctx.lineTo(cx + w, line.y);
-            ctx.stroke();
-            // Handle dot
-            ctx.beginPath();
-            ctx.arc(line.dotX, line.y, 1.8, 0, Math.PI * 2);
-            ctx.fill();
+        // Gear body with teeth
+        ctx.beginPath();
+        for (let i = 0; i <= teeth * 2; i++) {
+            const angle = (i / (teeth * 2)) * Math.PI * 2 - Math.PI / 2;
+            const r = (i % 2 === 0) ? outerR : outerR - toothDepth;
+            const px = cx + Math.cos(angle) * r;
+            const py = cy + Math.sin(angle) * r;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
         }
+        ctx.closePath();
+        ctx.stroke();
+
+        // Center hole
+        ctx.beginPath();
+        ctx.arc(cx, cy, innerR * 0.5, 0, Math.PI * 2);
+        ctx.stroke();
     }
 
     /**
-     * Draw a cross (✕) icon — used for remove.
+     * Draw a trash can icon — used for remove.
+     * Professional design with lid, body, and vertical lines.
      */
     _drawCrossIcon(ctx, btnX, btnY, btnW, btnH) {
         const cx = btnX + btnW / 2;
         const cy = btnY + btnH / 2;
-        const s = btnW * 0.25;
+        const w = btnW * 0.28;
+        const h = btnH * 0.28;
 
-        ctx.lineWidth = 1.4;
+        ctx.lineWidth = 1.3;
         ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
 
+        // Lid (horizontal line at top)
         ctx.beginPath();
-        ctx.moveTo(cx - s, cy - s);
-        ctx.lineTo(cx + s, cy + s);
-        ctx.moveTo(cx + s, cy - s);
-        ctx.lineTo(cx - s, cy + s);
+        ctx.moveTo(cx - w * 1.1, cy - h);
+        ctx.lineTo(cx + w * 1.1, cy - h);
         ctx.stroke();
+
+        // Lid handle (small bump on top)
+        ctx.beginPath();
+        ctx.moveTo(cx - w * 0.35, cy - h);
+        ctx.quadraticCurveTo(cx, cy - h * 1.5, cx + w * 0.35, cy - h);
+        ctx.stroke();
+
+        // Body (trapezoid — slightly wider at top)
+        ctx.beginPath();
+        ctx.moveTo(cx - w, cy - h);
+        ctx.lineTo(cx - w * 0.85, cy + h);
+        ctx.lineTo(cx + w * 0.85, cy + h);
+        ctx.lineTo(cx + w, cy - h);
+        ctx.stroke();
+
+        // Vertical lines inside (3 lines)
+        const lines = [-w * 0.35, 0, w * 0.35];
+        for (const lx of lines) {
+            ctx.beginPath();
+            ctx.moveTo(cx + lx, cy - h * 0.6);
+            ctx.lineTo(cx + lx * 0.85, cy + h * 0.7);
+            ctx.stroke();
+        }
     }
 
     _roundRect(ctx, x, y, w, h, r) {

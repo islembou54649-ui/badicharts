@@ -151,12 +151,17 @@ export class EventManager {
             this.activeAction = 'draw';
             this.engine.drawingManager.onPointerDown(x, y, this.engine.activeTool);
         } else if (inPriceAxis) {
-            // FIX: Price axis drag = scale the price range (not pan)
-            this.activeAction = 'scale-price';
+            // Price axis drag — TradingView-style:
+            //   - VERTICAL drag (up/down) = PAN the chart vertically (move
+            //     the visible price range up/down so the user can scroll
+            //     through prices).
+            //   - HORIZONTAL drag (left/right) on the price axis = SCALE
+            //     (zoom in/out the price range).
+            // The direction is detected on first move.
+            this.activeAction = 'price-axis-pending';
             this._scaleStartRange = { ...vp.priceRange };
             this._scaleStartY = y;
-            // Remember the Y position of the cursor relative to the main pane,
-            // so the price under the cursor stays fixed while scaling.
+            this._scaleStartX = x;
             const mainRegion = regions.find(r => r.id === 'main');
             if (mainRegion) {
                 const cursorYInMain = y - mainRegion.rect.y;
@@ -165,6 +170,7 @@ export class EventManager {
             } else {
                 this._scaleAnchorPrice = null;
             }
+            this._priceAxisDirection = null; // 'vertical' | 'horizontal'
         } else if (inTimeAxis) {
             // Time-axis drag = horizontal PAN (default chart behavior).
             // The previous 'scale-time' (zoom via drag) feature was removed
@@ -215,55 +221,56 @@ export class EventManager {
                 // drag). Time-axis zoom is done via +/- buttons or wheel.
                 this.engine.viewport.panBy(dx);
                 this.engine.viewport.updatePriceRange(this.engine.dataManager);
-            } else if (this.activeAction === 'scale-price') {
-                // TradingView-style price-axis scaling (improved).
-                //
-                // Behavior:
-                //   - Drag DOWN (dy>0) → compress the visible price range (zoom IN).
-                //   - Drag UP (dy<0) → expand the range (zoom OUT).
-                //
-                // The price UNDER THE CURSOR stays fixed on screen — the range
-                // pivots around the cursor's price, not the range midpoint.
-                //
-                // Improvements over the previous implementation:
-                //   1. The drag sensitivity is scaled by the price pane's height,
-                //      so a small drag on a short chart produces the same zoom
-                //      ratio as a small drag on a tall chart. Previously the
-                //      divisor was a constant 50, making the zoom either too
-                //      fast (tall chart) or too slow (short chart).
-                //   2. We clamp the zoom factor per drag event so the price
-                //      doesn't snap wildly when the cursor is jittered.
-                //   3. The price-under-cursor anchor is captured ONCE at drag
-                //      start (in _scaleAnchorPrice), and we recompute the range
-                //      from the ORIGINAL start range each move — this prevents
-                //      drift accumulation that made the previous version feel
-                //      unpredictable.
+            } else if (this.activeAction === 'price-axis-pending' || this.activeAction === 'scale-price' || this.activeAction === 'pan-price') {
                 const vp = this.engine.viewport;
                 vp.autoScale = false;
                 const totalDy = y - this._scaleStartY;
-                // Drag ~1x the pane height = e^2.5 ≈ 12x zoom. Feels right.
-                const sensitivity = Math.max(120, vp.priceHeight * 0.75);
-                let factor = Math.exp(-totalDy / sensitivity);
-                // Clamp to a reasonable per-drag range (0.05x to 20x) so the
-                // chart doesn't disappear into a single pixel or invert.
-                factor = Math.max(0.05, Math.min(20, factor));
+                const totalDx = x - this._scaleStartX;
 
-                const startMin = this._scaleStartRange.min;
-                const startMax = this._scaleStartRange.max;
-                const startSpan = startMax - startMin;
-                if (!isFinite(startSpan) || startSpan <= 0) return;
-                const newSpan = Math.max(startSpan * factor, 1e-9);
+                // Detect direction on first significant move.
+                if (this.activeAction === 'price-axis-pending') {
+                    if (Math.abs(totalDy) > 5 && Math.abs(totalDy) > Math.abs(totalDx)) {
+                        this._priceAxisDirection = 'vertical';
+                        this.activeAction = 'pan-price';
+                    } else if (Math.abs(totalDx) > 5 && Math.abs(totalDx) > Math.abs(totalDy)) {
+                        this._priceAxisDirection = 'horizontal';
+                        this.activeAction = 'scale-price';
+                    } else {
+                        return; // not enough movement yet
+                    }
+                }
 
-                // Pivot: the price that was under the cursor at drag start.
-                // Its screen Y should remain constant as we scale.
-                const pivot = (typeof this._scaleAnchorPrice === 'number' && isFinite(this._scaleAnchorPrice))
-                    ? this._scaleAnchorPrice
-                    : (startMin + startMax) / 2;
-                // Relative position of pivot in the ORIGINAL range (0=top, 1=bottom).
-                const pivotT = (pivot - startMin) / startSpan;
-                const newMin = pivot - pivotT * newSpan;
-                const newMax = newMin + newSpan;
-                vp.priceRange = { min: newMin, max: newMax };
+                if (this._priceAxisDirection === 'vertical' || this.activeAction === 'pan-price') {
+                    // VERTICAL drag = PAN the chart vertically.
+                    // Move the price range up/down by the drag amount.
+                    const span = this._scaleStartRange.max - this._scaleStartRange.min;
+                    if (span <= 0) return;
+                    // Convert pixel drag to price shift.
+                    const priceShift = -totalDy / vp.priceHeight * span;
+                    vp.priceRange = {
+                        min: this._scaleStartRange.min + priceShift,
+                        max: this._scaleStartRange.max + priceShift
+                    };
+                } else if (this._priceAxisDirection === 'horizontal' || this.activeAction === 'scale-price') {
+                    // HORIZONTAL drag = SCALE (zoom in/out).
+                    // Drag LEFT → zoom IN, drag RIGHT → zoom OUT.
+                    const sensitivity = 200;
+                    let factor = Math.exp(-totalDx / sensitivity);
+                    factor = Math.max(0.05, Math.min(20, factor));
+                    const startMin = this._scaleStartRange.min;
+                    const startMax = this._scaleStartRange.max;
+                    const startSpan = startMax - startMin;
+                    if (!isFinite(startSpan) || startSpan <= 0) return;
+                    const newSpan = Math.max(startSpan * factor, 1e-9);
+                    // Pivot around the cursor's price.
+                    const pivot = (typeof this._scaleAnchorPrice === 'number' && isFinite(this._scaleAnchorPrice))
+                        ? this._scaleAnchorPrice
+                        : (startMin + startMax) / 2;
+                    const pivotT = (pivot - startMin) / startSpan;
+                    const newMin = pivot - pivotT * newSpan;
+                    const newMax = newMin + newSpan;
+                    vp.priceRange = { min: newMin, max: newMax };
+                }
             } else if (this.activeAction === 'draw') {
                 this.engine.drawingManager.onPointerMove(x, y);
             } else if (this.activeAction === 'select-drag' && this._dragTarget) {

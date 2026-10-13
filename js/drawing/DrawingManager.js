@@ -37,6 +37,7 @@ import { PriceLabel } from './PriceLabel.js';
 import { DateRange } from './DateRange.js';
 import { Pitchfork } from './Pitchfork.js';
 import { GannBox } from './GannBox.js';
+import { ArrowMarker } from './ArrowMarker.js';
 import { drawingToolRegistry } from './DrawingToolRegistry.js';
 
 /**
@@ -81,7 +82,14 @@ export const BUILT_IN_TOOLS = {
     text:        { label: 'Text',            icon: 'T',  category: 'Annotations',   factory: (opts) => new TextDrawing(opts) },
     pricelabel:  { label: 'Price Label',     icon: '⌖', category: 'Annotations',   factory: (opts) => new PriceLabel(opts) },
     daterange:   { label: 'Date Range',      icon: '▤', category: 'Annotations',   factory: (opts) => new DateRange(opts) },
-    measurement: { label: 'Measurement',    icon: '↔', category: 'Annotations',   factory: (opts) => new Measurement(opts) }
+    measurement: { label: 'Measurement',    icon: '↔', category: 'Annotations',   factory: (opts) => new Measurement(opts) },
+    // Arrow / icon markers — placed above or below candles
+    arrowUp:     { label: 'Arrow Up',       icon: '↑', category: 'Markers', factory: (opts) => new ArrowMarker({ ...opts, iconType: 'arrowUp' }) },
+    arrowDown:   { label: 'Arrow Down',     icon: '↓', category: 'Markers', factory: (opts) => new ArrowMarker({ ...opts, iconType: 'arrowDown' }) },
+    starMarker:  { label: 'Star',           icon: '★', category: 'Markers', factory: (opts) => new ArrowMarker({ ...opts, iconType: 'star' }) },
+    flagMarker:  { label: 'Flag',           icon: '⚑', category: 'Markers', factory: (opts) => new ArrowMarker({ ...opts, iconType: 'flag' }) },
+    diamondMarker: { label: 'Diamond',      icon: '◆', category: 'Markers', factory: (opts) => new ArrowMarker({ ...opts, iconType: 'diamond' }) },
+    dotMarker:   { label: 'Dot Circle',     icon: '●', category: 'Markers', factory: (opts) => new ArrowMarker({ ...opts, iconType: 'dot' }) }
 };
 
 export class DrawingManager {

@@ -66,10 +66,10 @@ const BADICHARTS_SVG = `<svg class="bc" xmlns="http://www.w3.org/2000/svg" viewB
 
 export class Watermark {
     constructor(options = {}) {
-        this.opacity = options.opacity ?? 0.55;
+        this.opacity = options.opacity ?? 0.45;
         this.paddingLeft = options.paddingLeft ?? 16;
         this.paddingBottom = options.paddingBottom ?? 8;
-        this.width = options.width ?? 220;
+        this.width = options.width ?? 130;  // was 220 — smaller per user request
 
         this._wrap = null;
         this._svgHost = null;

@@ -631,6 +631,97 @@ export function drawPatternDetection(ctx, vp, dm, theme, manager) {
     ctx.restore();
 }
 
+// ============================================================
+// 7. ANIMATED CANDLES
+// ============================================================
+/**
+ * Animated Candles: draws regular candles but the last N candles "grow"
+ * from their open price to their close price with a smooth animation.
+ * This lets the user SEE how the chart works — each candle appears to
+ * form in real time.
+ *
+ * The animation uses a time-based progress (0..1) that loops every ~3
+ * seconds for the last 15 candles.
+ */
+let _animStartTime = 0;
+
+export function drawAnimatedCandles(ctx, vp, dm, theme, manager) {
+    // Draw all candles normally first.
+    manager._drawCandleVariant(ctx, vp, dm, theme, 'candles');
+
+    // Then overlay the animation on the last 15 candles.
+    const { opens, highs, lows, closes } = dm.raw();
+    const n = dm.size;
+    if (n < 2) return;
+
+    const ANIM_COUNT = 15;
+    const ANIM_DURATION = 3000; // ms per full grow cycle
+    const now = performance.now();
+    if (_animStartTime === 0) _animStartTime = now;
+    const elapsed = (now - _animStartTime) % ANIM_DURATION;
+    const progress = elapsed / ANIM_DURATION; // 0..1
+
+    const barSpacing = vp.barSpacing;
+    if (barSpacing < 2) return;
+
+    const leftIdx = Math.max(0, Math.floor(vp.leftEdge));
+    const rightIdx = Math.min(n - 1, Math.ceil(vp.rightEdge));
+    const animStart = Math.max(leftIdx, n - ANIM_COUNT);
+
+    ctx.save();
+    const bodyW = Math.max(1, barSpacing * 0.7);
+
+    for (let i = animStart; i <= rightIdx; i++) {
+        if (i < leftIdx || i > rightIdx) continue;
+        const o = opens[i], h = highs[i], l = lows[i], c = closes[i];
+        const isUp = c >= o;
+        const color = isUp ? theme.upColor : theme.downColor;
+
+        // Stagger: each candle starts its growth a bit later.
+        const stagger = ((i - animStart) / ANIM_COUNT) * 0.5; // 0..0.5
+        const localT = Math.max(0, Math.min(1, (progress - stagger) * 2));
+        // Ease-out cubic for smooth growth.
+        const ease = 1 - Math.pow(1 - localT, 3);
+
+        // Animated close = open + (close - open) * ease.
+        const animClose = o + (c - o) * ease;
+        // Animated high/low = open + (h-o)*ease, open + (l-o)*ease.
+        const animHigh = o + (h - o) * ease;
+        const animLow = o + (l - o) * ease;
+
+        const x = vp.indexToX(i) + barSpacing / 2;
+        const yOpen = vp.priceToY(o);
+        const yClose = vp.priceToY(animClose);
+        const yHigh = vp.priceToY(animHigh);
+        const yLow = vp.priceToY(animLow);
+
+        // Draw a glow around the animated candle.
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 8 * (1 - ease); // glow fades as it completes
+
+        // Wick
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, yHigh);
+        ctx.lineTo(x + 0.5, yLow);
+        ctx.stroke();
+
+        // Body
+        const yTop = Math.min(yOpen, yClose);
+        const bodyH = Math.max(1, Math.abs(yClose - yOpen));
+        ctx.fillStyle = color;
+        ctx.fillRect(x - bodyW / 2, yTop, bodyW, bodyH);
+
+        ctx.shadowBlur = 0;
+    }
+    ctx.restore();
+
+    // Request next frame to keep the animation going.
+    if (manager._engine) manager._engine.requestRender();
+    else if (typeof manager.requestRender === 'function') manager.requestRender();
+}
+
 // Registry of advanced chart types and their draw functions.
 export const ADVANCED_CHART_TYPES = {
     renko:              (ctx, vp, dm, theme, mgr) => drawRenko(ctx, vp, dm, theme),
@@ -638,5 +729,6 @@ export const ADVANCED_CHART_TYPES = {
     threeLineBreak:     (ctx, vp, dm, theme, mgr) => drawThreeLineBreak(ctx, vp, dm, theme),
     kagi:               (ctx, vp, dm, theme, mgr) => drawKagi(ctx, vp, dm, theme),
     heikinAshiSmoothed: (ctx, vp, dm, theme, mgr) => drawHeikinAshiSmoothed(ctx, vp, dm, theme, mgr),
-    patternDetection:   (ctx, vp, dm, theme, mgr) => drawPatternDetection(ctx, vp, dm, theme, mgr)
+    patternDetection:   (ctx, vp, dm, theme, mgr) => drawPatternDetection(ctx, vp, dm, theme, mgr),
+    animatedCandles:    (ctx, vp, dm, theme, mgr) => drawAnimatedCandles(ctx, vp, dm, theme, mgr)
 };
