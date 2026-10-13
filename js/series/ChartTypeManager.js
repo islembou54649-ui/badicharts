@@ -1,6 +1,6 @@
 /**
  * ChartTypeManager.js
- * Manages chart/candle rendering types. 30 types available:
+ * Manages chart/candle rendering types. 36 types available:
  *
  * Standard candles (10):
  *  1. candles       — Standard Japanese candlestick
@@ -37,7 +37,17 @@
  * 28. hollowClassic   — TradingView classic hollow style
  * 29. hollowWickOnly  — Hollow body, colored wicks only
  * 30. hollowBiColor   — Up = green hollow, Down = red hollow, diff wick colors
+ *
+ * Advanced chart types (6) — أنماط قوية:
+ * 31. renko              — Renko bricks (price-movement only, no time)
+ * 32. pointAndFigure     — Point & Figure (X/O columns, 3-box reversal)
+ * 33. threeLineBreak     — Three-Line Break (reversal on 3-line break)
+ * 34. kagi               — Kagi (thickness changes at reversal)
+ * 35. heikinAshiSmoothed — Heikin-Ashi with EMA smoothing
+ * 36. patternDetection   — Candles + pattern markers (Doji, Hammer, etc.)
  */
+import { ADVANCED_CHART_TYPES } from './AdvancedChartTypes.js';
+
 export const CHART_TYPES = [
     { id: 'candles',       label: 'Candles',          category: 'Standard' },
     { id: 'hollow',        label: 'Hollow Candles',   category: 'Standard' },
@@ -68,7 +78,13 @@ export const CHART_TYPES = [
     { id: 'hollowFilled',  label: 'Hollow Filled',        category: 'Pushed' },
     { id: 'hollowClassic', label: 'Hollow Classic',       category: 'Pushed' },
     { id: 'hollowWickOnly', label: 'Hollow Wick Only',    category: 'Pushed' },
-    { id: 'hollowBiColor', label: 'Hollow Bi-Color',      category: 'Pushed' }
+    { id: 'hollowBiColor', label: 'Hollow Bi-Color',      category: 'Pushed' },
+    { id: 'renko',              label: 'Renko',               category: 'Advanced' },
+    { id: 'pointAndFigure',     label: 'Point & Figure',     category: 'Advanced' },
+    { id: 'threeLineBreak',     label: 'Three-Line Break',   category: 'Advanced' },
+    { id: 'kagi',               label: 'Kagi',               category: 'Advanced' },
+    { id: 'heikinAshiSmoothed', label: 'HA Smoothed',       category: 'Advanced' },
+    { id: 'patternDetection',   label: 'Pattern Detection',  category: 'Advanced' }
 ];
 
 export class ChartTypeManager {
@@ -184,6 +200,18 @@ export class ChartTypeManager {
                 break;
             case 'highLow':
                 this._drawHighLow(ctx, viewport, dm, theme);
+                break;
+            // Advanced chart types (Renko, P&F, Three-Line Break, Kagi,
+            // HA-Smoothed, Pattern Detection) — see AdvancedChartTypes.js
+            case 'renko':
+            case 'pointAndFigure':
+            case 'threeLineBreak':
+            case 'kagi':
+            case 'heikinAshiSmoothed':
+            case 'patternDetection':
+                if (ADVANCED_CHART_TYPES[type]) {
+                    ADVANCED_CHART_TYPES[type](ctx, viewport, dm, theme, this);
+                }
                 break;
             default:
                 this._drawCandleVariant(ctx, viewport, dm, theme, 'candles');
