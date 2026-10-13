@@ -283,6 +283,12 @@ function getTLBLines(dm) {
 /**
  * Kagi chart: a continuous line whose thickness changes at reversal
  * points. Each segment is anchored to its source bar index.
+ *
+ * FIX: the horizontal connector between consecutive vertical segments
+ * is now drawn from the PREVIOUS segment's X position to the current
+ * segment's X position at the shared price (the end of the previous =
+ * the start of the current). This makes the Kagi line look continuous
+ * — a proper stair-step pattern — instead of disconnected vertical bars.
  */
 export function drawKagi(ctx, vp, dm, theme) {
     const segments = getKagiSegments(dm);
@@ -299,28 +305,44 @@ export function drawKagi(ctx, vp, dm, theme) {
     const thickColor = theme.upColor;
     const thinColor = theme.downColor;
 
-    for (const seg of segments) {
-        if (seg.barIdx < leftIdx || seg.barIdx > rightIdx) continue;
+    // Iterate through ALL segments (not just visible ones) so we can draw
+    // the horizontal connector from the previous segment even when the
+    // previous one is off-screen but the current one is on-screen.
+    for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
         const x = vp.indexToX(seg.barIdx) + barSpacing / 2;
         const y1 = vp.priceToY(seg.fromPrice);
         const y2 = vp.priceToY(seg.toPrice);
         const color = seg.thickness === 'thick' ? thickColor : thinColor;
         const width = seg.thickness === 'thick' ? 3 : 1.5;
 
-        // Vertical segment
         ctx.strokeStyle = color;
         ctx.lineWidth = width;
-        ctx.beginPath();
-        ctx.moveTo(x, y1);
-        ctx.lineTo(x, y2);
-        ctx.stroke();
 
-        // Horizontal connector to the previous segment's end price
-        // (so the line looks continuous).
-        if (seg.connectFromX !== undefined) {
+        // Draw the horizontal connector FIRST (from previous segment's X
+        // to this segment's X, at the shared price y1).
+        // The connector uses the PREVIOUS segment's thickness/color to
+        // visually distinguish the transition point.
+        if (i > 0) {
+            const prevSeg = segments[i - 1];
+            const prevX = vp.indexToX(prevSeg.barIdx) + barSpacing / 2;
+            // Only draw the connector if at least part of it is visible.
+            if (Math.max(prevX, x) >= 0 && Math.min(prevX, x) <= vp.width) {
+                // The connector's color/thickness matches the segment that
+                // is BEGINNING (the new direction), which is the standard
+                // Kagi convention.
+                ctx.beginPath();
+                ctx.moveTo(prevX, y1);
+                ctx.lineTo(x, y1);
+                ctx.stroke();
+            }
+        }
+
+        // Draw the vertical segment (only if visible).
+        if (seg.barIdx >= leftIdx - 1 && seg.barIdx <= rightIdx + 1) {
             ctx.beginPath();
-            ctx.moveTo(seg.connectFromX, y1);
-            ctx.lineTo(x, y1);
+            ctx.moveTo(x, y1);
+            ctx.lineTo(x, y2);
             ctx.stroke();
         }
     }
