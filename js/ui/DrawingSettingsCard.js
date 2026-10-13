@@ -262,7 +262,7 @@ export class DrawingSettingsCard {
         if (!this.drawing) return;
         const json = this.drawing.toJSON();
         delete json.id;
-        const factory = this.engine.drawingManager._toolFactories[json.type];
+        const factory = this.engine.drawingManager._getFactory(json.type);
         if (factory) {
             const clone = factory(json);
             const vp = this.engine.viewport;

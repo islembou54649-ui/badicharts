@@ -37,6 +37,52 @@ import { PriceLabel } from './PriceLabel.js';
 import { DateRange } from './DateRange.js';
 import { Pitchfork } from './Pitchfork.js';
 import { GannBox } from './GannBox.js';
+import { drawingToolRegistry } from './DrawingToolRegistry.js';
+
+/**
+ * BUILT-IN_TOOLS: a map of all drawing tools that ship with BadiCharts.
+ * These are NOT auto-registered — they're available here so the user can
+ * register them on demand via DrawingToolRegistry.registerAll(BUILT_IN_TOOLS)
+ * or pick specific ones.
+ *
+ * To register ALL built-in tools:
+ *   import { BUILT_IN_TOOLS } from './js/drawing/DrawingManager.js';
+ *   import { drawingToolRegistry } from './js/drawing/DrawingToolRegistry.js';
+ *   drawingToolRegistry.registerAll(BUILT_IN_TOOLS);
+ *
+ * To register just one:
+ *   drawingToolRegistry.register('trendline', BUILT_IN_TOOLS.trendline);
+ *
+ * To register a custom tool:
+ *   drawingToolRegistry.register('mytool', {
+ *     label: 'My Tool', icon: '★', category: 'Custom',
+ *     factory: (opts) => new MyTool(opts)
+ *   });
+ */
+export const BUILT_IN_TOOLS = {
+    trendline:   { label: 'Trend Line',       icon: '╱', category: 'Trend & Lines',  factory: (opts) => new TrendLine(opts) },
+    ray:         { label: 'Ray',              icon: '→', category: 'Trend & Lines',  factory: (opts) => new RayLine(opts) },
+    hline:       { label: 'Horizontal Line', icon: '─', category: 'Trend & Lines',  factory: (opts) => new HorizontalLine(opts) },
+    vline:       { label: 'Vertical Line',   icon: '│', category: 'Trend & Lines',  factory: (opts) => new VerticalLine(opts) },
+    arrow:       { label: 'Arrow',           icon: '➤', category: 'Trend & Lines',  factory: (opts) => new Arrow(opts) },
+    brush:       { label: 'Brush',           icon: '๛', category: 'Trend & Lines',  factory: (opts) => new Brush(opts) },
+    polyline:    { label: 'Polyline',        icon: '⩘', category: 'Trend & Lines',  factory: (opts) => new Polyline(opts) },
+    rectangle:   { label: 'Rectangle',       icon: '▭', category: 'Shapes',         factory: (opts) => new Rectangle(opts) },
+    ellipse:     { label: 'Ellipse',         icon: '◯', category: 'Shapes',         factory: (opts) => new Ellipse(opts) },
+    triangle:    { label: 'Triangle',        icon: '△', category: 'Shapes',         factory: (opts) => new Triangle(opts) },
+    fib:         { label: 'Fib Retracement (editable)', icon: 'F',  category: 'Fibonacci', factory: (opts) => new Fibonacci(opts) },
+    fibext:      { label: 'Fib Extension',   icon: 'F+', category: 'Fibonacci',     factory: (opts) => new FibExtension(opts) },
+    fibchannel:  { label: 'Fib Channel',     icon: 'F‖', category: 'Fibonacci',     factory: (opts) => new FibChannel(opts) },
+    channel:     { label: 'Parallel Channel', icon: '‖', category: 'Patterns & Channels', factory: (opts) => new ParallelChannel(opts) },
+    pitchfork:   { label: 'Andrews Pitchfork', icon: '⋔', category: 'Patterns & Channels', factory: (opts) => new Pitchfork(opts) },
+    gannbox:     { label: 'Gann Box',        icon: '⊞', category: 'Patterns & Channels', factory: (opts) => new GannBox(opts) },
+    longpos:     { label: 'Long Position',    icon: '↗', category: 'Positions',     factory: (opts) => new LongPosition(opts) },
+    shortpos:    { label: 'Short Position',  icon: '↘', category: 'Positions',     factory: (opts) => new ShortPosition(opts) },
+    text:        { label: 'Text',            icon: 'T',  category: 'Annotations',   factory: (opts) => new TextDrawing(opts) },
+    pricelabel:  { label: 'Price Label',     icon: '⌖', category: 'Annotations',   factory: (opts) => new PriceLabel(opts) },
+    daterange:   { label: 'Date Range',      icon: '▤', category: 'Annotations',   factory: (opts) => new DateRange(opts) },
+    measurement: { label: 'Measurement',    icon: '↔', category: 'Annotations',   factory: (opts) => new Measurement(opts) }
+};
 
 export class DrawingManager {
     constructor() {
@@ -56,40 +102,22 @@ export class DrawingManager {
         this._dragStartX = 0;
         this._dragStartY = 0;
 
-        this._toolFactories = {
-            // Trend & lines
-            trendline: (opts) => new TrendLine(opts),
-            ray: (opts) => new RayLine(opts),
-            hline: (opts) => new HorizontalLine(opts),
-            vline: (opts) => new VerticalLine(opts),
-            arrow: (opts) => new Arrow(opts),
-            brush: (opts) => new Brush(opts),
-            polyline: (opts) => new Polyline(opts),
-            // Shapes
-            rectangle: (opts) => new Rectangle(opts),
-            ellipse: (opts) => new Ellipse(opts),
-            triangle: (opts) => new Triangle(opts),
-            // Fibonacci
-            fib: (opts) => new Fibonacci(opts),
-            fibext: (opts) => new FibExtension(opts),
-            fibchannel: (opts) => new FibChannel(opts),
-            // Patterns
-            channel: (opts) => new ParallelChannel(opts),
-            pitchfork: (opts) => new Pitchfork(opts),
-            gannbox: (opts) => new GannBox(opts),
-            // Positions
-            longpos: (opts) => new LongPosition(opts),
-            shortpos: (opts) => new ShortPosition(opts),
-            // Annotations
-            text: (opts) => new TextDrawing(opts),
-            pricelabel: (opts) => new PriceLabel(opts),
-            daterange: (opts) => new DateRange(opts),
-            measurement: (opts) => new Measurement(opts)
-        };
+        // The tool factory lookup is delegated to the global registry.
+        // Built-in tools are NOT auto-registered — the user/app must register
+        // them explicitly via drawingToolRegistry.registerAll(BUILT_IN_TOOLS)
+        // or via drawingToolRegistry.register(id, def) for custom tools.
+        this._registry = drawingToolRegistry;
+    }
+
+    /**
+     * Get the factory for a tool id. Delegates to the registry.
+     */
+    _getFactory(toolId) {
+        return this._registry.factory(toolId);
     }
 
     setActiveTool(tool) {
-        if (tool && !this._toolFactories[tool]) {
+        if (tool && !this._registry.has(tool)) {
             console.warn('Unknown drawing tool:', tool);
             return;
         }
@@ -185,9 +213,10 @@ export class DrawingManager {
 
     // ---- Public pointer handlers ----
     onPointerDown(x, y, tool) {
-        if (tool && this._toolFactories[tool]) {
+        const factory = this._getFactory(tool);
+        if (tool && factory) {
             if (!this._currentDrawing) {
-                this._currentDrawing = this._toolFactories[tool]({ color: this._nextColor() });
+                this._currentDrawing = factory({ color: this._nextColor() });
             }
             this._currentDrawing.onPointerDown(x, y, this._viewport);
         }

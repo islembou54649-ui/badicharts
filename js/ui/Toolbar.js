@@ -12,61 +12,21 @@
 import { DomUtils } from '../utils/DomUtils.js';
 import { INDICATOR_REGISTRY } from '../indicators/IndicatorManager.js';
 import { CHART_TYPES } from '../series/ChartTypeManager.js';
+import { drawingToolRegistry } from '../drawing/DrawingToolRegistry.js';
 
-const TOOL_CATEGORIES = [
-    {
-        name: 'Trend & Lines',
-        tools: [
-            { id: 'trendline', label: 'Trend Line', icon: '╱' },
-            { id: 'ray',       label: 'Ray',         icon: '→' },
-            { id: 'hline',     label: 'Horizontal Line', icon: '─' },
-            { id: 'vline',     label: 'Vertical Line',   icon: '│' },
-            { id: 'arrow',     label: 'Arrow',       icon: '➤' },
-            { id: 'brush',     label: 'Brush',       icon: '๛' },
-            { id: 'polyline',  label: 'Polyline',    icon: '⩘' }
-        ]
-    },
-    {
-        name: 'Shapes',
-        tools: [
-            { id: 'rectangle', label: 'Rectangle', icon: '▭' },
-            { id: 'ellipse',   label: 'Ellipse',   icon: '◯' },
-            { id: 'triangle',  label: 'Triangle',  icon: '△' }
-        ]
-    },
-    {
-        name: 'Fibonacci',
-        tools: [
-            { id: 'fib',        label: 'Fib Retracement (editable)', icon: 'F' },
-            { id: 'fibext',     label: 'Fib Extension',   icon: 'F+' },
-            { id: 'fibchannel', label: 'Fib Channel',     icon: 'F‖' }
-        ]
-    },
-    {
-        name: 'Patterns & Channels',
-        tools: [
-            { id: 'channel',  label: 'Parallel Channel', icon: '‖' },
-            { id: 'pitchfork', label: 'Andrews Pitchfork', icon: '⋔' },
-            { id: 'gannbox',  label: 'Gann Box',          icon: '⊞' }
-        ]
-    },
-    {
-        name: 'Positions',
-        tools: [
-            { id: 'longpos',  label: 'Long Position',  icon: '↗' },
-            { id: 'shortpos', label: 'Short Position', icon: '↘' }
-        ]
-    },
-    {
-        name: 'Annotations',
-        tools: [
-            { id: 'text',       label: 'Text',        icon: 'T' },
-            { id: 'pricelabel', label: 'Price Label', icon: '⌖' },
-            { id: 'daterange',  label: 'Date Range',  icon: '▤' },
-            { id: 'measurement', label: 'Measurement', icon: '↔' }
-        ]
-    }
-];
+// NOTE: Drawing tools are NO LONGER hard-coded in this file.
+// They live in the DrawingToolRegistry singleton. To add tools, register
+// them at runtime:
+//
+//   import { drawingToolRegistry } from './js/drawing/DrawingToolRegistry.js';
+//   drawingToolRegistry.register('mytool', {
+//     label: 'My Tool', icon: '★', category: 'Custom',
+//     factory: (opts) => new MyTool(opts)
+//   });
+//
+// See js/drawing/DrawingToolRegistry.js for full docs.
+//
+// When the registry changes, the toolbar auto-refreshes its drawing menu.
 
 export class Toolbar {
     constructor(container, engine) {
@@ -83,6 +43,28 @@ export class Toolbar {
                 this._closeMenus();
             }
         });
+        // Auto-refresh the drawing menu when the registry changes (so newly
+        // registered tools appear immediately if the menu is open).
+        this._unsubRegistry = drawingToolRegistry.subscribe(() => {
+            if (this._openMenu === 'draw') {
+                // Rebuild the open draw menu in place.
+                const menu = this._currentMenu;
+                if (menu) {
+                    menu.innerHTML = '';
+                    this._buildDrawMenu(menu);
+                }
+            }
+        });
+    }
+
+    /**
+     * Rebuild the drawing menu (called when the registry changes externally).
+     */
+    _rebuildDrawingMenu() {
+        if (this._currentMenu && this._openMenu === 'draw') {
+            this._currentMenu.innerHTML = '';
+            this._buildDrawMenu(this._currentMenu);
+        }
     }
 
     _build() {
@@ -179,7 +161,21 @@ export class Toolbar {
     }
 
     _buildDrawMenu(menu) {
-        for (const cat of TOOL_CATEGORIES) {
+        // Tools come from the DrawingToolRegistry singleton — empty by default.
+        // Register tools at runtime via drawingToolRegistry.register(id, def)
+        // or drawingToolRegistry.registerAll(BUILT_IN_TOOLS).
+        const cats = drawingToolRegistry.categories();
+        if (cats.length === 0) {
+            // Empty-state hint: show the user how to add tools.
+            const hint = DomUtils.el('div', { class: 'ac-menu-empty-hint' },
+                'No drawing tools registered. ' +
+                'Add tools via the DrawingToolRegistry API. ' +
+                'See js/drawing/DrawingToolRegistry.js for docs.'
+            );
+            menu.appendChild(hint);
+            return;
+        }
+        for (const cat of cats) {
             const catEl = DomUtils.el('div', { class: 'ac-menu-category' }, cat.name);
             menu.appendChild(catEl);
             for (const t of cat.tools) {
