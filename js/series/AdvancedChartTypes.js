@@ -1,17 +1,22 @@
 /**
  * AdvancedChartTypes.js
  *
- * Six powerful chart types that go beyond standard candlesticks:
+ * Six powerful chart types that go beyond standard candlesticks.
  *
- * 1. Renko           — bricks based on price movement only (no time axis)
+ * FIX (user-reported): the previous versions computed bricks/columns/lines
+ * from the VISIBLE range on every frame — so when the user panned or
+ * zoomed, the bricks shifted and jumped. The new versions compute the
+ * full structure ONCE from the entire dataset (cached by data version),
+ * and each brick/column/line is tagged with the source bar index. This
+ * way the structure stays anchored to the chart when panning/zooming.
+ *
+ * Chart types:
+ * 1. Renko           — bricks based on price movement only (no time)
  * 2. Point & Figure  — X/O columns based on reversal boxes
  * 3. ThreeLineBreak  — reversal only when price breaks 3 prior lines
  * 4. Kagi            — line thickness changes at reversal points
- * 5. HeikinAshiSmoothed — HA with extra EMA smoothing for cleaner trends
- * 6. PatternDetection — overlays pattern markers (Doji, Hammer, Engulfing,
- *                       Shooting Star, Marubozu) on regular candles
- *
- * Each method receives (ctx, vp, dm, theme) and draws directly on the canvas.
+ * 5. HeikinAshiSmoothed — HA with EMA smoothing for cleaner trends
+ * 6. PatternDetection — overlays pattern markers on regular candles
  */
 
 // ============================================================
@@ -19,73 +24,93 @@
 // ============================================================
 /**
  * Renko chart: bricks are drawn only when price moves by a fixed amount.
- * - Brick size = (visible high - low) / 20, OR ATR-based if available.
- * - Up bricks (green) start at the top of the previous brick.
- * - Down bricks (red) start at the bottom of the previous brick.
- * - The time axis is NOT used — bricks are evenly spaced.
+ * Each brick is anchored to the bar index where it was generated.
+ * Bricks are cached and only recomputed when the data changes.
  */
 export function drawRenko(ctx, vp, dm, theme) {
-    const { highs, lows, closes } = dm.raw();
+    const bricks = getRenkoBricks(dm);
+    if (!bricks || bricks.length === 0) return;
+
     const leftIdx = Math.max(0, Math.floor(vp.leftEdge));
     const rightIdx = Math.min(dm.size - 1, Math.ceil(vp.rightEdge));
-    if (rightIdx <= leftIdx) return;
 
-    // Determine brick size from visible range.
-    let pMin = Infinity, pMax = -Infinity;
-    for (let i = leftIdx; i <= rightIdx; i++) {
-        if (lows[i] < pMin) pMin = lows[i];
-        if (highs[i] > pMax) pMax = highs[i];
-    }
-    if (!isFinite(pMin) || !isFinite(pMax) || pMax <= pMin) return;
-    const brickSize = (pMax - pMin) / 20;
-    if (brickSize <= 0) return;
+    const barSpacing = vp.barSpacing;
+    if (barSpacing < 1) return; // too zoomed out — skip
 
-    // Build Renko bricks from close prices.
-    const bricks = [];
-    let lastClose = closes[leftIdx];
-    let direction = 0; // 0 = none, 1 = up, -1 = down
-    for (let i = leftIdx; i <= rightIdx; i++) {
-        const diff = closes[i] - lastClose;
-        if (Math.abs(diff) >= brickSize) {
-            const numBricks = Math.floor(Math.abs(diff) / brickSize);
-            for (let b = 0; b < numBricks; b++) {
-                if (diff > 0) {
-                    bricks.push({ price: lastClose + brickSize, dir: 1 });
-                    lastClose += brickSize;
-                    direction = 1;
-                } else {
-                    bricks.push({ price: lastClose - brickSize, dir: -1 });
-                    lastClose -= brickSize;
-                    direction = -1;
-                }
-            }
-        }
-    }
-
-    // Draw bricks — evenly spaced, NOT time-based.
-    const total = bricks.length;
-    if (total === 0) return;
-    const brickW = Math.max(2, (vp.width - 80) / total * 0.8);
-    const gap = Math.max(1, (vp.width - 80) / total * 0.2);
+    const bodyW = Math.max(2, barSpacing * 0.7);
     ctx.save();
-    for (let i = 0; i < total; i++) {
-        const brick = bricks[i];
-        const x = 10 + i * (brickW + gap);
-        const yTop = vp.priceToY(brick.price);
-        const yBot = vp.priceToY(brick.price - brickSize);
+    for (const brick of bricks) {
+        // Only draw bricks within the visible range.
+        if (brick.barIdx < leftIdx || brick.barIdx > rightIdx) continue;
+        const x = vp.indexToX(brick.barIdx) + barSpacing / 2;
+        const yTop = vp.priceToY(brick.topPrice);
+        const yBot = vp.priceToY(brick.botPrice);
         const h = Math.max(2, Math.abs(yBot - yTop));
         const color = brick.dir > 0 ? theme.upColor : theme.downColor;
-        // Hollow up, filled down (classic Renko style)
         if (brick.dir > 0) {
+            // Up brick — hollow
             ctx.strokeStyle = color;
             ctx.lineWidth = 1.5;
-            ctx.strokeRect(x + 0.5, yTop + 0.5, brickW, h);
+            ctx.strokeRect(x - bodyW / 2 + 0.5, yTop + 0.5, bodyW, h);
         } else {
+            // Down brick — filled
             ctx.fillStyle = color;
-            ctx.fillRect(x, yTop, brickW, h);
+            ctx.fillRect(x - bodyW / 2, yTop, bodyW, h);
         }
     }
     ctx.restore();
+}
+
+// Renko brick cache.
+let _renkoCache = { version: -1, bricks: null, brickSize: 0 };
+
+function getRenkoBricks(dm) {
+    if (_renkoCache.version === dm.version) return _renkoCache.bricks;
+    const { highs, lows, closes } = dm.raw();
+    const n = dm.size;
+    if (n < 2) { _renkoCache = { version: dm.version, bricks: [], brickSize: 0 }; return []; }
+
+    // Brick size = average of (high - low) over all bars, / 2.
+    let sumRange = 0;
+    for (let i = 0; i < n; i++) sumRange += highs[i] - lows[i];
+    const brickSize = (sumRange / n) / 2;
+    if (brickSize <= 0) { _renkoCache = { version: dm.version, bricks: [], brickSize: 0 }; return []; }
+
+    const bricks = [];
+    let lastClose = closes[0];
+    let brickCount = 0; // virtual index for spacing multiple bricks from one bar
+
+    for (let i = 1; i < n; i++) {
+        const diff = closes[i] - lastClose;
+        const absDiff = Math.abs(diff);
+        if (absDiff >= brickSize) {
+            const numBricks = Math.floor(absDiff / brickSize);
+            for (let b = 0; b < numBricks; b++) {
+                if (diff > 0) {
+                    const topPrice = lastClose + brickSize;
+                    bricks.push({
+                        barIdx: i,           // anchor to source bar
+                        topPrice: topPrice,
+                        botPrice: lastClose,
+                        dir: 1
+                    });
+                    lastClose = topPrice;
+                } else {
+                    const botPrice = lastClose - brickSize;
+                    bricks.push({
+                        barIdx: i,
+                        topPrice: lastClose,
+                        botPrice: botPrice,
+                        dir: -1
+                    });
+                    lastClose = botPrice;
+                }
+                brickCount++;
+            }
+        }
+    }
+    _renkoCache = { version: dm.version, bricks, brickSize };
+    return bricks;
 }
 
 // ============================================================
@@ -93,88 +118,92 @@ export function drawRenko(ctx, vp, dm, theme) {
 // ============================================================
 /**
  * Point & Figure chart: X = rising column, O = falling column.
- * - Box size = (visible high - low) / 20.
- * - Reversal threshold = 3 boxes (classic 3-box reversal).
- * - Columns are evenly spaced (NOT time-based).
+ * Each column is anchored to the bar index range where it was generated.
  */
 export function drawPointAndFigure(ctx, vp, dm, theme) {
-    const { highs, lows, closes } = dm.raw();
+    const columns = getPFColumns(dm);
+    if (!columns || columns.length === 0) return;
+
     const leftIdx = Math.max(0, Math.floor(vp.leftEdge));
     const rightIdx = Math.min(dm.size - 1, Math.ceil(vp.rightEdge));
-    if (rightIdx <= leftIdx) return;
+    const barSpacing = vp.barSpacing;
+    if (barSpacing < 2) return;
 
-    let pMin = Infinity, pMax = -Infinity;
-    for (let i = leftIdx; i <= rightIdx; i++) {
-        if (lows[i] < pMin) pMin = lows[i];
-        if (highs[i] > pMax) pMax = highs[i];
+    ctx.save();
+    ctx.font = `${Math.max(8, Math.min(barSpacing, 14))}px 'JetBrains Mono', monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    for (const col of columns) {
+        // Only draw columns that overlap the visible range.
+        if (col.endBarIdx < leftIdx || col.startBarIdx > rightIdx) continue;
+        // Anchor the column's x to its starting bar.
+        const x = vp.indexToX(col.startBarIdx) + barSpacing / 2;
+        const symbol = col.type;
+        const color = symbol === 'X' ? theme.upColor : theme.downColor;
+        ctx.fillStyle = color;
+        for (const price of col.prices) {
+            const y = vp.priceToY(price);
+            ctx.fillText(symbol, x, y);
+        }
     }
-    if (!isFinite(pMin) || !isFinite(pMax) || pMax <= pMin) return;
-    const boxSize = (pMax - pMin) / 20;
-    if (boxSize <= 0) return;
+    ctx.restore();
+}
+
+let _pfCache = { version: -1, columns: null };
+
+function getPFColumns(dm) {
+    if (_pfCache.version === dm.version) return _pfCache.columns;
+    const { closes } = dm.raw();
+    const n = dm.size;
+    if (n < 2) { _pfCache = { version: dm.version, columns: [] }; return []; }
+
+    // Box size = average daily range / 3.
+    const { highs, lows } = dm.raw();
+    let sumRange = 0;
+    for (let i = 0; i < n; i++) sumRange += highs[i] - lows[i];
+    const boxSize = (sumRange / n) / 3;
+    if (boxSize <= 0) { _pfCache = { version: dm.version, columns: [] }; return []; }
+
     const reversalBoxes = 3;
     const reversalAmount = boxSize * reversalBoxes;
 
-    // Build P&F columns.
     const columns = [];
-    let currentCol = { type: 'X', prices: [closes[leftIdx]], startPrice: closes[leftIdx] };
-    let lastPrice = closes[leftIdx];
+    let currentCol = { type: 'X', prices: [closes[0]], startBarIdx: 0, endBarIdx: 0 };
+    let lastPrice = closes[0];
     let direction = 0;
 
-    for (let i = leftIdx + 1; i <= rightIdx; i++) {
+    for (let i = 1; i < n; i++) {
         const price = closes[i];
+        currentCol.endBarIdx = i;
         if (direction >= 0) {
-            // Currently rising (or neutral) — check if we continue up
             if (price - lastPrice >= boxSize) {
                 currentCol.type = 'X';
                 currentCol.prices.push(price);
                 lastPrice = price;
                 direction = 1;
             } else if (lastPrice - price >= reversalAmount) {
-                // Reversal — start a new O column
                 columns.push(currentCol);
-                currentCol = { type: 'O', prices: [price], startPrice: lastPrice };
+                currentCol = { type: 'O', prices: [price], startBarIdx: i, endBarIdx: i };
                 lastPrice = price;
                 direction = -1;
             }
         } else {
-            // Currently falling — check if we continue down
             if (lastPrice - price >= boxSize) {
                 currentCol.type = 'O';
                 currentCol.prices.push(price);
                 lastPrice = price;
             } else if (price - lastPrice >= reversalAmount) {
-                // Reversal — start a new X column
                 columns.push(currentCol);
-                currentCol = { type: 'X', prices: [price], startPrice: lastPrice };
+                currentCol = { type: 'X', prices: [price], startBarIdx: i, endBarIdx: i };
                 lastPrice = price;
                 direction = 1;
             }
         }
     }
     if (currentCol.prices.length > 0) columns.push(currentCol);
-
-    // Draw columns.
-    const colW = Math.max(3, (vp.width - 80) / Math.max(1, columns.length) * 0.6);
-    const colGap = Math.max(2, (vp.width - 80) / Math.max(1, columns.length) * 0.4);
-    const boxH = Math.max(2, vp.priceHeight / 25);
-
-    ctx.save();
-    ctx.font = `${Math.max(8, Math.min(boxH, colW) * 0.8)}px 'JetBrains Mono', monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    for (let c = 0; c < columns.length; c++) {
-        const col = columns[c];
-        const x = 10 + c * (colW + colGap) + colW / 2;
-        const symbol = col.type;
-        const color = symbol === 'X' ? theme.upColor : theme.downColor;
-        ctx.fillStyle = color;
-        for (let p = 0; p < col.prices.length; p++) {
-            const y = vp.priceToY(col.prices[p]);
-            ctx.fillText(symbol, x, y);
-        }
-    }
-    ctx.restore();
+    _pfCache = { version: dm.version, columns };
+    return columns;
 }
 
 // ============================================================
@@ -182,152 +211,103 @@ export function drawPointAndFigure(ctx, vp, dm, theme) {
 // ============================================================
 /**
  * Three-Line Break: a new line is drawn only when price exceeds the
- * high or low of the previous 3 lines. Reversal requires breaking
- * all 3 prior lines.
+ * high or low of the previous 3 lines. Each line is anchored to its
+ * source bar index.
  */
 export function drawThreeLineBreak(ctx, vp, dm, theme) {
-    const { closes } = dm.raw();
+    const lines = getTLBLines(dm);
+    if (!lines || lines.length < 2) return;
+
     const leftIdx = Math.max(0, Math.floor(vp.leftEdge));
     const rightIdx = Math.min(dm.size - 1, Math.ceil(vp.rightEdge));
-    if (rightIdx <= leftIdx) return;
+    const barSpacing = vp.barSpacing;
+    if (barSpacing < 1) return;
 
-    // Build lines.
-    const lines = [];
-    let prevClose = closes[leftIdx];
-    lines.push({ price: prevClose, dir: 0 });
-
-    for (let i = leftIdx + 1; i <= rightIdx; i++) {
-        const price = closes[i];
-        const last3 = lines.slice(-3);
-        const maxHigh = Math.max(...last3.map(l => l.price));
-        const minLow = Math.min(...last3.map(l => l.price));
-        const lastDir = lines[lines.length - 1].dir;
-
-        if (price > maxHigh) {
-            // Continue up or start new up line
-            lines.push({ price, dir: 1 });
-            prevClose = price;
-        } else if (price < minLow) {
-            // Continue down or start new down line
-            lines.push({ price, dir: -1 });
-            prevClose = price;
-        }
-        // Otherwise no new line
-    }
-
-    // Draw lines as thick bars.
-    const total = lines.length;
-    if (total < 2) return;
-    const lineW = Math.max(3, (vp.width - 80) / total * 0.7);
-    const gap = Math.max(1, (vp.width - 80) / total * 0.3);
-
+    const lineW = Math.max(2, barSpacing * 0.7);
     ctx.save();
-    for (let i = 1; i < total; i++) {
+    for (let i = 1; i < lines.length; i++) {
         const line = lines[i];
+        if (line.barIdx < leftIdx || line.barIdx > rightIdx) continue;
         const prev = lines[i - 1];
-        const x = 10 + i * (lineW + gap);
+        const x = vp.indexToX(line.barIdx) + barSpacing / 2;
         const y1 = vp.priceToY(prev.price);
         const y2 = vp.priceToY(line.price);
         const yTop = Math.min(y1, y2);
         const h = Math.max(1, Math.abs(y2 - y1));
         const color = line.dir > 0 ? theme.upColor : (line.dir < 0 ? theme.downColor : theme.mutedText);
-        // Hollow up, filled down (classic style)
         if (line.dir > 0) {
             ctx.strokeStyle = color;
             ctx.lineWidth = 1.5;
-            ctx.strokeRect(x + 0.5, yTop + 0.5, lineW, h);
+            ctx.strokeRect(x - lineW / 2 + 0.5, yTop + 0.5, lineW, h);
         } else {
             ctx.fillStyle = color;
-            ctx.fillRect(x, yTop, lineW, h);
+            ctx.fillRect(x - lineW / 2, yTop, lineW, h);
         }
     }
     ctx.restore();
+}
+
+let _tlbCache = { version: -1, lines: null };
+
+function getTLBLines(dm) {
+    if (_tlbCache.version === dm.version) return _tlbCache.lines;
+    const { closes } = dm.raw();
+    const n = dm.size;
+    if (n < 2) { _tlbCache = { version: dm.version, lines: [] }; return []; }
+
+    const lines = [];
+    let prevPrice = closes[0];
+    lines.push({ price: prevPrice, dir: 0, barIdx: 0 });
+
+    for (let i = 1; i < n; i++) {
+        const price = closes[i];
+        const last3 = lines.slice(-3);
+        const maxHigh = Math.max(...last3.map(l => l.price));
+        const minLow = Math.min(...last3.map(l => l.price));
+
+        if (price > maxHigh) {
+            lines.push({ price, dir: 1, barIdx: i });
+            prevPrice = price;
+        } else if (price < minLow) {
+            lines.push({ price, dir: -1, barIdx: i });
+            prevPrice = price;
+        }
+    }
+    _tlbCache = { version: dm.version, lines };
+    return lines;
 }
 
 // ============================================================
 // 4. KAGI
 // ============================================================
 /**
- * Kagi chart: a single continuous line whose thickness changes when
- * price breaks a prior high/low (yang → yin transition).
- * - Thick line = bullish (yang)
- * - Thin line = bearish (yin)
+ * Kagi chart: a continuous line whose thickness changes at reversal
+ * points. Each segment is anchored to its source bar index.
  */
 export function drawKagi(ctx, vp, dm, theme) {
-    const { highs, lows, closes } = dm.raw();
+    const segments = getKagiSegments(dm);
+    if (!segments || segments.length === 0) return;
+
     const leftIdx = Math.max(0, Math.floor(vp.leftEdge));
     const rightIdx = Math.min(dm.size - 1, Math.ceil(vp.rightEdge));
-    if (rightIdx <= leftIdx) return;
+    const barSpacing = vp.barSpacing;
+    if (barSpacing < 1) return;
 
-    // Determine reversal amount.
-    let pMin = Infinity, pMax = -Infinity;
-    for (let i = leftIdx; i <= rightIdx; i++) {
-        if (lows[i] < pMin) pMin = lows[i];
-        if (highs[i] > pMax) pMax = highs[i];
-    }
-    if (!isFinite(pMin) || !isFinite(pMax) || pMax <= pMin) return;
-    const reversalAmount = (pMax - pMin) * 0.04; // 4% reversal
-
-    // Build Kagi segments.
-    const segments = [];
-    let curPrice = closes[leftIdx];
-    let curDir = 0; // 0=neutral, 1=up, -1=down
-    let curThickness = 'thin'; // 'thin' = yin (bearish), 'thick' = yang (bullish)
-    let extremePrice = curPrice; // tracks the high (if up) or low (if down)
-
-    for (let i = leftIdx + 1; i <= rightIdx; i++) {
-        const price = closes[i];
-        if (curDir >= 0) {
-            // Currently rising or neutral
-            if (price > curPrice) {
-                segments.push({ from: curPrice, to: price, thickness: curThickness });
-                if (price > extremePrice) extremePrice = price;
-                curPrice = price;
-                curDir = 1;
-            } else if (curPrice - price >= reversalAmount) {
-                // Reversal — switch direction
-                curDir = -1;
-                curThickness = 'thin';
-                segments.push({ from: curPrice, to: price, thickness: curThickness });
-                extremePrice = price;
-                curPrice = price;
-            }
-        } else {
-            // Currently falling
-            if (price < curPrice) {
-                segments.push({ from: curPrice, to: price, thickness: curThickness });
-                if (price < extremePrice) extremePrice = price;
-                curPrice = price;
-            } else if (price - curPrice >= reversalAmount) {
-                // Reversal — switch direction
-                curDir = 1;
-                curThickness = 'thick';
-                segments.push({ from: curPrice, to: price, thickness: curThickness });
-                extremePrice = price;
-                curPrice = price;
-            }
-        }
-    }
-
-    // Draw Kagi line — evenly spaced horizontally, but the line itself is
-    // vertical (price-based). We draw it as a zigzag.
     ctx.save();
-    const stepX = (vp.width - 80) / Math.max(1, segments.length);
-    let x = 10;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     const thickColor = theme.upColor;
     const thinColor = theme.downColor;
 
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    for (let i = 0; i < segments.length; i++) {
-        const seg = segments[i];
-        const y1 = vp.priceToY(seg.from);
-        const y2 = vp.priceToY(seg.to);
+    for (const seg of segments) {
+        if (seg.barIdx < leftIdx || seg.barIdx > rightIdx) continue;
+        const x = vp.indexToX(seg.barIdx) + barSpacing / 2;
+        const y1 = vp.priceToY(seg.fromPrice);
+        const y2 = vp.priceToY(seg.toPrice);
         const color = seg.thickness === 'thick' ? thickColor : thinColor;
         const width = seg.thickness === 'thick' ? 3 : 1.5;
 
-        // Vertical line
+        // Vertical segment
         ctx.strokeStyle = color;
         ctx.lineWidth = width;
         ctx.beginPath();
@@ -335,16 +315,84 @@ export function drawKagi(ctx, vp, dm, theme) {
         ctx.lineTo(x, y2);
         ctx.stroke();
 
-        // Horizontal connector to next segment
-        if (i < segments.length - 1) {
+        // Horizontal connector to the previous segment's end price
+        // (so the line looks continuous).
+        if (seg.connectFromX !== undefined) {
             ctx.beginPath();
-            ctx.moveTo(x, y2);
-            ctx.lineTo(x + stepX, y2);
+            ctx.moveTo(seg.connectFromX, y1);
+            ctx.lineTo(x, y1);
             ctx.stroke();
         }
-        x += stepX;
     }
     ctx.restore();
+}
+
+let _kagiCache = { version: -1, segments: null };
+
+function getKagiSegments(dm) {
+    if (_kagiCache.version === dm.version) return _kagiCache.segments;
+    const { highs, lows, closes } = dm.raw();
+    const n = dm.size;
+    if (n < 2) { _kagiCache = { version: dm.version, segments: [] }; return []; }
+
+    // Reversal amount = 4% of the total price range.
+    let pMin = Infinity, pMax = -Infinity;
+    for (let i = 0; i < n; i++) {
+        if (lows[i] < pMin) pMin = lows[i];
+        if (highs[i] > pMax) pMax = highs[i];
+    }
+    const reversalAmount = (pMax - pMin) * 0.04;
+    if (reversalAmount <= 0) { _kagiCache = { version: dm.version, segments: [] }; return []; }
+
+    const segments = [];
+    let curPrice = closes[0];
+    let curDir = 0;
+    let curThickness = 'thin';
+    let prevBarIdx = 0;
+    let prevX = 0; // not used for positioning, just for connector
+
+    for (let i = 1; i < n; i++) {
+        const price = closes[i];
+        if (curDir >= 0) {
+            if (price > curPrice) {
+                segments.push({
+                    barIdx: i, fromPrice: curPrice, toPrice: price,
+                    thickness: curThickness
+                });
+                curPrice = price;
+                curDir = 1;
+                prevBarIdx = i;
+            } else if (curPrice - price >= reversalAmount) {
+                curDir = -1;
+                curThickness = 'thin';
+                segments.push({
+                    barIdx: i, fromPrice: curPrice, toPrice: price,
+                    thickness: curThickness
+                });
+                curPrice = price;
+                prevBarIdx = i;
+            }
+        } else {
+            if (price < curPrice) {
+                segments.push({
+                    barIdx: i, fromPrice: curPrice, toPrice: price,
+                    thickness: curThickness
+                });
+                curPrice = price;
+            } else if (price - curPrice >= reversalAmount) {
+                curDir = 1;
+                curThickness = 'thick';
+                segments.push({
+                    barIdx: i, fromPrice: curPrice, toPrice: price,
+                    thickness: curThickness
+                });
+                curPrice = price;
+                prevBarIdx = i;
+            }
+        }
+    }
+    _kagiCache = { version: dm.version, segments };
+    return segments;
 }
 
 // ============================================================
@@ -353,13 +401,13 @@ export function drawKagi(ctx, vp, dm, theme) {
 /**
  * Heikin-Ashi Smoothed: applies HA calculation, then smooths the
  * HA open/close with a 3-period EMA for cleaner trend visualization.
+ * This type IS time-based (like regular candles), so no anchoring fix
+ * is needed.
  */
 export function drawHeikinAshiSmoothed(ctx, vp, dm, theme, manager) {
-    // First compute regular Heikin-Ashi.
     const ha = manager._computeHeikinAshi(dm);
     if (!ha) return;
 
-    // Apply EMA smoothing to HA open and close.
     const period = 3;
     const alpha = 2 / (period + 1);
     const n = dm.size;
@@ -380,14 +428,12 @@ export function drawHeikinAshiSmoothed(ctx, vp, dm, theme, manager) {
         smLow[i] = Math.min(ha.lows[i], smLow[i - 1] * 0.5 + ha.lows[i] * 0.5);
     }
 
-    // Draw as candles using the smoothed data.
     const leftIdx = Math.max(0, Math.floor(vp.leftEdge));
     const rightIdx = Math.min(n - 1, Math.ceil(vp.rightEdge));
     if (rightIdx < leftIdx) return;
 
     const barSpacing = vp.barSpacing;
     if (barSpacing < 1.5) {
-        // Zoomed out — draw close line
         ctx.save();
         ctx.strokeStyle = theme.upColor;
         ctx.lineWidth = 1.5;
@@ -412,7 +458,6 @@ export function drawHeikinAshiSmoothed(ctx, vp, dm, theme, manager) {
         const isUp = c >= o;
         const color = isUp ? theme.upColor : theme.downColor;
 
-        // Wick
         ctx.strokeStyle = color;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -420,7 +465,6 @@ export function drawHeikinAshiSmoothed(ctx, vp, dm, theme, manager) {
         ctx.lineTo(x + 0.5, vp.priceToY(l));
         ctx.stroke();
 
-        // Body
         const yOpen = vp.priceToY(o);
         const yClose = vp.priceToY(c);
         const yTop = Math.min(yOpen, yClose);
@@ -436,16 +480,10 @@ export function drawHeikinAshiSmoothed(ctx, vp, dm, theme, manager) {
 // ============================================================
 /**
  * Pattern Detection: draws regular candles, then overlays markers
- * for detected candlestick patterns:
- *   - Doji (open ≈ close)
- *   - Hammer (small body, long lower wick)
- *   - Shooting Star (small body, long upper wick)
- *   - Bullish Engulfing (large up body engulfs prior down)
- *   - Bearish Engulfing (large down body engulfs prior up)
- *   - Marubozu (no wicks)
+ * for detected candlestick patterns. This type IS time-based, so no
+ * anchoring fix is needed.
  */
 export function drawPatternDetection(ctx, vp, dm, theme, manager) {
-    // First draw regular candles.
     manager._drawCandleVariant(ctx, vp, dm, theme, 'candles');
 
     const { opens, highs, lows, closes } = dm.raw();
@@ -454,7 +492,7 @@ export function drawPatternDetection(ctx, vp, dm, theme, manager) {
     if (rightIdx <= leftIdx) return;
 
     const barSpacing = vp.barSpacing;
-    if (barSpacing < 3) return; // too zoomed out for markers
+    if (barSpacing < 3) return;
 
     ctx.save();
     ctx.font = "bold 9px 'Inter', sans-serif";
@@ -472,33 +510,21 @@ export function drawPatternDetection(ctx, vp, dm, theme, manager) {
         let label = null, color = null;
         const yHigh = vp.priceToY(h);
 
-        // Doji: body < 10% of range
         if (range > 0 && body / range < 0.1) {
             label = 'D'; color = '#FFC107';
-        }
-        // Hammer: lower wick >= 2x body, upper wick small
-        else if (body > 0 && lowerWick >= body * 2 && upperWick < body * 0.5) {
+        } else if (body > 0 && lowerWick >= body * 2 && upperWick < body * 0.5) {
             label = 'H'; color = theme.upColor;
-        }
-        // Shooting Star: upper wick >= 2x body, lower wick small
-        else if (body > 0 && upperWick >= body * 2 && lowerWick < body * 0.5) {
+        } else if (body > 0 && upperWick >= body * 2 && lowerWick < body * 0.5) {
             label = 'SS'; color = theme.downColor;
-        }
-        // Bullish Engulfing: prev down, current up, current body engulfs prev body
-        else if (prevC < prevO && c > o && c >= prevO && o <= prevC) {
+        } else if (prevC < prevO && c > o && c >= prevO && o <= prevC) {
             label = 'BE'; color = theme.upColor;
-        }
-        // Bearish Engulfing: prev up, current down, current body engulfs prev body
-        else if (prevC > prevO && c < o && o >= prevC && c <= prevO) {
+        } else if (prevC > prevO && c < o && o >= prevC && c <= prevO) {
             label = 'BrE'; color = theme.downColor;
-        }
-        // Marubozu: no wicks (or very small)
-        else if (range > 0 && body / range > 0.95) {
+        } else if (range > 0 && body / range > 0.95) {
             label = 'M'; color = c >= o ? theme.upColor : theme.downColor;
         }
 
         if (label) {
-            // Draw a small marker above the high.
             ctx.fillStyle = color;
             ctx.beginPath();
             ctx.arc(x, yHigh - 8, 5, 0, Math.PI * 2);
@@ -511,8 +537,6 @@ export function drawPatternDetection(ctx, vp, dm, theme, manager) {
 }
 
 // Registry of advanced chart types and their draw functions.
-// 'manager' is the ChartTypeManager instance (needed for HA-Smoothed
-// and Pattern Detection which delegate to existing methods).
 export const ADVANCED_CHART_TYPES = {
     renko:              (ctx, vp, dm, theme, mgr) => drawRenko(ctx, vp, dm, theme),
     pointAndFigure:     (ctx, vp, dm, theme, mgr) => drawPointAndFigure(ctx, vp, dm, theme),
