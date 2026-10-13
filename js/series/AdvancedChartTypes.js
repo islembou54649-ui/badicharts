@@ -35,10 +35,35 @@ export function drawRenko(ctx, vp, dm, theme) {
     const rightIdx = Math.min(dm.size - 1, Math.ceil(vp.rightEdge));
 
     const barSpacing = vp.barSpacing;
-    if (barSpacing < 1) return; // too zoomed out — skip
+
+    ctx.save();
+
+    // When very zoomed out (barSpacing < 2), draw a simple close-price
+    // step line instead of bricks — the bricks would be invisible at 1px.
+    if (barSpacing < 2) {
+        ctx.lineWidth = 1.5;
+        let prevX = null, prevY = null;
+        for (const brick of bricks) {
+            if (brick.barIdx < leftIdx || brick.barIdx > rightIdx) continue;
+            const x = vp.indexToX(brick.barIdx) + barSpacing / 2;
+            // Use the brick's midpoint price for the step line.
+            const midPrice = (brick.topPrice + brick.botPrice) / 2;
+            const y = vp.priceToY(midPrice);
+            ctx.strokeStyle = brick.dir > 0 ? theme.upColor : theme.downColor;
+            if (prevX !== null && prevY !== null) {
+                ctx.beginPath();
+                ctx.moveTo(prevX, prevY);
+                ctx.lineTo(x, prevY); // horizontal step
+                ctx.lineTo(x, y);     // vertical step
+                ctx.stroke();
+            }
+            prevX = x; prevY = y;
+        }
+        ctx.restore();
+        return;
+    }
 
     const bodyW = Math.max(2, barSpacing * 0.7);
-    ctx.save();
     for (const brick of bricks) {
         // Only draw bricks within the visible range.
         if (brick.barIdx < leftIdx || brick.barIdx > rightIdx) continue;
@@ -127,9 +152,32 @@ export function drawPointAndFigure(ctx, vp, dm, theme) {
     const leftIdx = Math.max(0, Math.floor(vp.leftEdge));
     const rightIdx = Math.min(dm.size - 1, Math.ceil(vp.rightEdge));
     const barSpacing = vp.barSpacing;
-    if (barSpacing < 2) return;
 
     ctx.save();
+
+    // When very zoomed out (barSpacing < 3), draw colored vertical bars
+    // instead of X/O letters — the letters would be unreadable at <3px.
+    if (barSpacing < 3) {
+        const colW = Math.max(1, barSpacing * 0.7);
+        for (const col of columns) {
+            if (col.endBarIdx < leftIdx || col.startBarIdx > rightIdx) continue;
+            const x = vp.indexToX(col.startBarIdx) + barSpacing / 2;
+            const color = col.type === 'X' ? theme.upColor : theme.downColor;
+            // Draw a thin bar from min to max price in this column.
+            const prices = col.prices;
+            const minP = Math.min(...prices);
+            const maxP = Math.max(...prices);
+            const yTop = vp.priceToY(maxP);
+            const yBot = vp.priceToY(minP);
+            ctx.fillStyle = color;
+            ctx.globalAlpha = 0.6;
+            ctx.fillRect(x - colW / 2, yTop, colW, Math.max(1, yBot - yTop));
+            ctx.globalAlpha = 1;
+        }
+        ctx.restore();
+        return;
+    }
+
     ctx.font = `${Math.max(8, Math.min(barSpacing, 14))}px 'JetBrains Mono', monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -221,10 +269,34 @@ export function drawThreeLineBreak(ctx, vp, dm, theme) {
     const leftIdx = Math.max(0, Math.floor(vp.leftEdge));
     const rightIdx = Math.min(dm.size - 1, Math.ceil(vp.rightEdge));
     const barSpacing = vp.barSpacing;
-    if (barSpacing < 1) return;
+
+    ctx.save();
+
+    // When very zoomed out (barSpacing < 2), draw a close-price step line
+    // instead of rectangles — the rectangles would be invisible at 1px.
+    if (barSpacing < 2) {
+        ctx.lineWidth = 1.5;
+        let prevX = null, prevY = null;
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line.barIdx < leftIdx || line.barIdx > rightIdx) continue;
+            const x = vp.indexToX(line.barIdx) + barSpacing / 2;
+            const y = vp.priceToY(line.price);
+            ctx.strokeStyle = line.dir > 0 ? theme.upColor : (line.dir < 0 ? theme.downColor : theme.mutedText);
+            if (prevX !== null && prevY !== null) {
+                ctx.beginPath();
+                ctx.moveTo(prevX, prevY);
+                ctx.lineTo(x, prevY);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+            }
+            prevX = x; prevY = y;
+        }
+        ctx.restore();
+        return;
+    }
 
     const lineW = Math.max(2, barSpacing * 0.7);
-    ctx.save();
     for (let i = 1; i < lines.length; i++) {
         const line = lines[i];
         if (line.barIdx < leftIdx || line.barIdx > rightIdx) continue;
@@ -297,7 +369,8 @@ export function drawKagi(ctx, vp, dm, theme) {
     const leftIdx = Math.max(0, Math.floor(vp.leftEdge));
     const rightIdx = Math.min(dm.size - 1, Math.ceil(vp.rightEdge));
     const barSpacing = vp.barSpacing;
-    if (barSpacing < 1) return;
+    // Kagi draws a continuous line, so it works at any zoom level.
+    // No early return for small barSpacing.
 
     ctx.save();
     ctx.lineCap = 'round';
