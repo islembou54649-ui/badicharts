@@ -91,9 +91,13 @@ export class VolumeProfile extends IndicatorBase {
             vaLow = lo; vaHigh = hi;
         }
 
-        const right = viewport.width - 70;
-        const maxBarW = right * (this.options.barWidthRatio || 0.35);
+        const chartW = viewport.width - 70; // chart area width (excludes price scale)
+        const maxBarW = chartW * (this.options.barWidthRatio || 0.35);
         const stripH = Math.max(1, viewport.priceHeight / NB * 0.6);
+        // Anchor the strips to the LEFT edge of the candle area (x=0),
+        // growing RIGHTWARD — so they overlay ON TOP of the candles,
+        // not stuck to the right-side price axis.
+        const stripAnchorX = 0;
 
         ctx.save();
         // Draw strips — each bucket is a thin horizontal strip.
@@ -101,24 +105,24 @@ export class VolumeProfile extends IndicatorBase {
             const priceLo = pMin + i * bucketSize;
             const priceHi = priceLo + bucketSize;
             const yMid = viewport.priceToY((priceLo + priceHi) / 2);
-            // Up volume strip (from the right edge, growing left).
+            // Up volume strip (from the left edge, growing right).
             const wUp = (upVol[i] / maxVol) * maxBarW;
             if (wUp > 0) {
-                ctx.fillStyle = this._withAlpha(this.color, 0.50);
-                ctx.fillRect(right - wUp, yMid - stripH / 2, wUp, stripH);
+                ctx.fillStyle = this._withAlpha(this.color, 0.45);
+                ctx.fillRect(stripAnchorX, yMid - stripH / 2, wUp, stripH);
             }
             // Down volume strip (overlaid, slightly offset).
             const wDn = (dnVol[i] / maxVol) * maxBarW;
             if (wDn > 0) {
-                ctx.fillStyle = this._withAlpha(this.color2, 0.50);
-                ctx.fillRect(right - wDn, yMid + stripH / 2 - stripH, wDn, stripH);
+                ctx.fillStyle = this._withAlpha(this.color2, 0.45);
+                ctx.fillRect(stripAnchorX, yMid + stripH / 2 - stripH, wDn, stripH);
             }
             // Outline the dominant side.
             const domW = Math.max(wUp, wDn);
             if (domW > 0) {
                 ctx.strokeStyle = (upVol[i] >= dnVol[i]) ? this.color : this.color2;
                 ctx.lineWidth = 0.5;
-                ctx.strokeRect(right - domW + 0.5, yMid - stripH / 2 + 0.5, domW, stripH);
+                ctx.strokeRect(stripAnchorX + 0.5, yMid - stripH / 2 + 0.5, domW, stripH);
             }
         }
 
@@ -131,7 +135,7 @@ export class VolumeProfile extends IndicatorBase {
         ctx.setLineDash([6, 4]);
         ctx.beginPath();
         ctx.moveTo(0, yPOC + 0.5);
-        ctx.lineTo(right, yPOC + 0.5);
+        ctx.lineTo(chartW, yPOC + 0.5);
         ctx.stroke();
         // VAH (Value Area High)
         const vahPrice = pMin + (vaHigh + 1) * bucketSize;
@@ -141,7 +145,7 @@ export class VolumeProfile extends IndicatorBase {
         ctx.setLineDash([3, 3]);
         ctx.beginPath();
         ctx.moveTo(0, yVAH + 0.5);
-        ctx.lineTo(right, yVAH + 0.5);
+        ctx.lineTo(chartW, yVAH + 0.5);
         ctx.stroke();
         // VAL (Value Area Low)
         const valPrice = pMin + vaLow * bucketSize;
@@ -149,20 +153,20 @@ export class VolumeProfile extends IndicatorBase {
         ctx.strokeStyle = this.color2;
         ctx.beginPath();
         ctx.moveTo(0, yVAL + 0.5);
-        ctx.lineTo(right, yVAL + 0.5);
+        ctx.lineTo(chartW, yVAL + 0.5);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Labels on the right side.
+        // Labels on the right side (just inside the chart area).
         ctx.font = "bold 9px 'JetBrains Mono', monospace";
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = this.color3;
-        ctx.fillText('POC ' + this._fmtPrice(pocPrice), right - 4, yPOC - 6);
+        ctx.fillText('POC ' + this._fmtPrice(pocPrice), chartW - 4, yPOC - 6);
         ctx.fillStyle = this.color;
-        ctx.fillText('VAH ' + this._fmtPrice(vahPrice), right - 4, yVAH - 6);
+        ctx.fillText('VAH ' + this._fmtPrice(vahPrice), chartW - 4, yVAH - 6);
         ctx.fillStyle = this.color2;
-        ctx.fillText('VAL ' + this._fmtPrice(valPrice), right - 4, yVAL + 6);
+        ctx.fillText('VAL ' + this._fmtPrice(valPrice), chartW - 4, yVAL + 6);
 
         ctx.restore();
     }

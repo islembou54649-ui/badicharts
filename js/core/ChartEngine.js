@@ -1233,15 +1233,19 @@ export class ChartEngine {
             this.dataFeed.start(1500);
             this._liveMode = true;
             btn?.classList.add('active');
+            // CHANGED per user request: the chart NO LONGER auto-scrolls
+            // to the right when a new tick arrives. The user must pan/
+            // scroll manually to see the latest candles. This matches
+            // TradingView behavior where the chart stays put unless the
+            // user explicitly scrolls to the right edge.
+            //
+            // The follow interval is kept (but does nothing) so we can
+            // easily re-enable auto-scroll later if needed.
             this._followInterval = setInterval(() => {
+                // No-op: chart stays where the user left it.
+                // We only re-render to show the updated last candle.
                 if (this.dataManager.size > 0) {
-                    const rightEdge = this.viewport.rightEdge;
-                    const lastIdx = this.dataManager.size - 1;
-                    if (rightEdge >= lastIdx - 5) {
-                        this.viewport.scrollToRight(this.dataManager.size);
-                        this.viewport.updatePriceRange(this.dataManager);
-                        this.requestRender();
-                    }
+                    this.requestRender();
                 }
             }, 800);
         }
