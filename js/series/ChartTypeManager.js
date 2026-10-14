@@ -82,7 +82,10 @@ export const CHART_TYPES = [
     { id: 'kagi',               label: 'Kagi',               category: 'Advanced' },
     { id: 'heikinAshiSmoothed', label: 'HA Smoothed',       category: 'Advanced' },
     { id: 'patternDetection',   label: 'Pattern Detection',  category: 'Advanced' },
-    { id: 'animatedCandles',    label: 'Animated Candles',  category: 'Advanced' }
+    { id: 'animatedCandles',    label: 'Animated Candles',  category: 'Advanced' },
+    { id: 'biColorCandles',     label: 'BiColor Candles',   category: 'Advanced' },
+    { id: 'orderFlow',          label: 'Order Flow',        category: 'Advanced' },
+    { id: 'numberedCandles',    label: 'Numbered Candles',  category: 'Advanced' }
 ];
 
 export class ChartTypeManager {
@@ -207,6 +210,9 @@ export class ChartTypeManager {
             case 'heikinAshiSmoothed':
             case 'patternDetection':
             case 'animatedCandles':
+            case 'biColorCandles':
+            case 'orderFlow':
+            case 'numberedCandles':
                 if (ADVANCED_CHART_TYPES[type]) {
                     ADVANCED_CHART_TYPES[type](ctx, viewport, dm, theme, this);
                 }

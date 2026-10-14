@@ -135,6 +135,12 @@ export class Toolbar {
         themeBtn.addEventListener('click', () => this.engine.toggleTheme());
         liveBtn.addEventListener('click', () => this.engine.toggleLive());
 
+        // Chart settings button — opens a modal to customize candle colors
+        // (body, wick, border separately for up and down candles).
+        const chartSettingsBtn = DomUtils.el('button', { class: 'ac-toolbar-btn', title: 'Chart Settings (Candle Colors)' }, '⚙');
+        chartSettingsBtn.style.fontSize = '14px';
+        chartSettingsBtn.addEventListener('click', () => this._openChartSettings());
+
         // Background upload button — opens a file picker for image/video/SVG.
         const bgBtn = DomUtils.el('button', { class: 'ac-toolbar-btn', title: 'Set Background (Image/Video/SVG)' }, '🖼');
         bgBtn.addEventListener('click', () => this._openBackgroundPicker());
@@ -156,7 +162,7 @@ export class Toolbar {
             if (this.engine.background) this.engine.background.clear();
         });
 
-        rightGroup.append(zoomIn, zoomOut, fitBtn, clearBtn, bgBtn, bgOpacity, bgClear, themeBtn, liveBtn);
+        rightGroup.append(zoomIn, zoomOut, fitBtn, clearBtn, chartSettingsBtn, bgBtn, bgOpacity, bgClear, themeBtn, liveBtn);
 
         this.element.append(brand, symbolSel, cursorBtn, drawTrigger, indTrigger, chartTypeTrigger, intervalGroup, rightGroup);
     }
@@ -188,6 +194,100 @@ export class Toolbar {
             input.remove();
         });
         input.click();
+    }
+
+    /**
+     * Open the chart settings modal — lets the user customize candle
+     * colors (body, wick, border separately for up and down candles).
+     */
+    _openChartSettings() {
+        if (this._chartSettingsModal) {
+            this._chartSettingsModal.style.display = 'flex';
+            return;
+        }
+        // Build the modal inline.
+        const overlay = DomUtils.el('div', { class: 'ac-chart-settings-overlay', style: 'display:none' });
+        const card = DomUtils.el('div', { class: 'ac-chart-settings-modal' });
+        const theme = this.engine.theme;
+        card.innerHTML = `
+            <div class="ac-cs-header">
+                <span class="ac-cs-title">Candle Color Settings</span>
+                <button class="ac-cs-close">×</button>
+            </div>
+            <div class="ac-cs-body">
+                <div class="ac-cs-section">
+                    <div class="ac-cs-section-title">Up Candle (Bullish)</div>
+                    <div class="ac-cs-row">
+                        <label>Body</label>
+                        <input type="color" data-field="upColor" value="${theme.upColor}">
+                    </div>
+                    <div class="ac-cs-row">
+                        <label>Wick</label>
+                        <input type="color" data-field="upWick" value="${theme.upWick || theme.upColor}">
+                    </div>
+                    <div class="ac-cs-row">
+                        <label>Border</label>
+                        <input type="color" data-field="upBorder" value="${theme.candleBorder || '#000000'}">
+                    </div>
+                </div>
+                <div class="ac-cs-section">
+                    <div class="ac-cs-section-title">Down Candle (Bearish)</div>
+                    <div class="ac-cs-row">
+                        <label>Body</label>
+                        <input type="color" data-field="downColor" value="${theme.downColor}">
+                    </div>
+                    <div class="ac-cs-row">
+                        <label>Wick</label>
+                        <input type="color" data-field="downWick" value="${theme.downWick || theme.downColor}">
+                    </div>
+                    <div class="ac-cs-row">
+                        <label>Border</label>
+                        <input type="color" data-field="downBorder" value="${theme.candleBorder || '#000000'}">
+                    </div>
+                </div>
+            </div>
+            <div class="ac-cs-footer">
+                <button class="ac-cs-btn ac-cs-reset">Reset</button>
+                <button class="ac-cs-btn ac-cs-done">Done</button>
+            </div>
+        `;
+        overlay.appendChild(card);
+        this.engine.overlayContainer.appendChild(overlay);
+        this._chartSettingsModal = overlay;
+
+        // Wire color inputs
+        card.querySelectorAll('[data-field]').forEach(el => {
+            el.addEventListener('input', () => {
+                const field = el.dataset.field;
+                const val = el.value;
+                this.engine.theme[field] = val;
+                // Also update the CSS variable for elements that use it.
+                if (field === 'upColor') document.documentElement.style.setProperty('--ac-up', val);
+                if (field === 'downColor') document.documentElement.style.setProperty('--ac-down', val);
+                this.engine.requestRender();
+            });
+        });
+
+        // Close / Done
+        card.querySelector('.ac-cs-close').addEventListener('click', () => this._chartSettingsModal.style.display = 'none');
+        card.querySelector('.ac-cs-done').addEventListener('click', () => this._chartSettingsModal.style.display = 'none');
+
+        // Reset
+        card.querySelector('.ac-cs-reset').addEventListener('click', () => {
+            const defaults = { upColor: '#16C784', downColor: '#EA3943', upWick: 'rgba(22,199,132,0.9)', downWick: 'rgba(234,57,67,0.9)', candleBorder: 'rgba(0,0,0,0.3)' };
+            Object.assign(this.engine.theme, defaults);
+            // Update the color input values
+            card.querySelector('[data-field="upColor"]').value = '#16C784';
+            card.querySelector('[data-field="downColor"]').value = '#EA3943';
+            this.engine.requestRender();
+        });
+
+        // Close on outside click
+        overlay.addEventListener('pointerdown', (e) => {
+            if (e.target === overlay) overlay.style.display = 'none';
+        });
+
+        overlay.style.display = 'flex';
     }
 
     _toggleMenu(name, trigger) {

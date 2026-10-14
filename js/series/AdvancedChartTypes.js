@@ -731,6 +731,181 @@ export function drawAnimatedCandles(ctx, vp, dm, theme, manager) {
     }
 }
 
+// ============================================================
+// 8. BICOLOR CANDLES — body split into two colors (top/bottom halves)
+// ============================================================
+/**
+ * BiColor Candles: each candle body is split into two halves.
+ * The top half = the color of the candle's direction (up=green, down=red).
+ * The bottom half = the opposite color.
+ * This gives a distinctive visual where you can see "buying vs selling"
+ * pressure within each candle.
+ */
+export function drawBiColorCandles(ctx, vp, dm, theme, manager) {
+    const { opens, highs, lows, closes } = dm.raw();
+    const leftIdx = Math.max(0, Math.floor(vp.leftEdge));
+    const rightIdx = Math.min(dm.size - 1, Math.ceil(vp.rightEdge));
+    if (rightIdx < leftIdx) return;
+
+    const barSpacing = vp.barSpacing;
+    const bodyW = Math.max(1, barSpacing * 0.7);
+    ctx.save();
+    for (let i = leftIdx; i <= rightIdx; i++) {
+        const o = opens[i], h = highs[i], l = lows[i], c = closes[i];
+        const x = vp.indexToX(i) + barSpacing / 2;
+        const isUp = c >= o;
+        const upColor = theme.upColor;
+        const downColor = theme.downColor;
+        const yHigh = vp.priceToY(h);
+        const yLow = vp.priceToY(l);
+        const yOpen = vp.priceToY(o);
+        const yClose = vp.priceToY(c);
+        const yTop = Math.min(yOpen, yClose);
+        const yBot = Math.max(yOpen, yClose);
+        const bodyH = Math.max(1, yBot - yTop);
+        const halfH = bodyH / 2;
+
+        // Wick
+        ctx.strokeStyle = isUp ? (theme.upWick || upColor) : (theme.downWick || downColor);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, yHigh);
+        ctx.lineTo(x + 0.5, yLow);
+        ctx.stroke();
+
+        // Body — top half = direction color, bottom half = opposite
+        ctx.fillStyle = isUp ? upColor : downColor;
+        ctx.fillRect(x - bodyW / 2, yTop, bodyW, halfH);
+        ctx.fillStyle = isUp ? downColor : upColor;
+        ctx.fillRect(x - bodyW / 2, yTop + halfH, bodyW, halfH);
+
+        // Border
+        ctx.strokeStyle = theme.candleBorder || 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(x - bodyW / 2 + 0.5, yTop + 0.5, bodyW, bodyH);
+    }
+    ctx.restore();
+}
+
+// ============================================================
+// 9. ORDER FLOW CANDLES — small rectangles inside the candle body
+// ============================================================
+/**
+ * Order Flow Candles: draws the candle body as a stack of small
+ * horizontal rectangles (like an order-flow / footprint chart).
+ * Each rectangle represents a price level within the candle's range.
+ * Green rectangles = price levels where close > open (buying).
+ * Red rectangles = price levels where close < open (selling).
+ * The number of rectangles scales with the candle's body height.
+ */
+export function drawOrderFlowCandles(ctx, vp, dm, theme, manager) {
+    const { opens, highs, lows, closes } = dm.raw();
+    const leftIdx = Math.max(0, Math.floor(vp.leftEdge));
+    const rightIdx = Math.min(dm.size - 1, Math.ceil(vp.rightEdge));
+    if (rightIdx < leftIdx) return;
+
+    const barSpacing = vp.barSpacing;
+    if (barSpacing < 3) {
+        // Too zoomed out — draw simple candles.
+        manager._drawCandleVariant(ctx, vp, dm, theme, 'candles');
+        return;
+    }
+    const bodyW = Math.max(2, barSpacing * 0.7);
+    const rectH = Math.max(2, barSpacing * 0.3); // height of each order-flow box
+    ctx.save();
+    for (let i = leftIdx; i <= rightIdx; i++) {
+        const o = opens[i], h = highs[i], l = lows[i], c = closes[i];
+        const x = vp.indexToX(i) + barSpacing / 2;
+        const isUp = c >= o;
+        const upColor = theme.upColor;
+        const downColor = theme.downColor;
+        const yHigh = vp.priceToY(h);
+        const yLow = vp.priceToY(l);
+        const yOpen = vp.priceToY(o);
+        const yClose = vp.priceToY(c);
+        const yTop = Math.min(yOpen, yClose);
+        const yBot = Math.max(yOpen, yClose);
+        const bodyH = Math.max(1, yBot - yTop);
+
+        // Wick
+        ctx.strokeStyle = isUp ? (theme.upWick || upColor) : (theme.downWick || downColor);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, yHigh);
+        ctx.lineTo(x + 0.5, yLow);
+        ctx.stroke();
+
+        // Body = stack of small rectangles from open to close
+        const numRects = Math.max(1, Math.floor(bodyH / rectH));
+        for (let r = 0; r < numRects; r++) {
+            const rectY = yTop + r * rectH;
+            const priceAtRect = vp.yToPrice(rectY + rectH / 2);
+            // Color: if this price level is above the candle's midpoint,
+            // it's "buying" (up color). Below = "selling" (down color).
+            const midPrice = (o + c) / 2;
+            const isBuying = priceAtRect >= midPrice ? isUp : !isUp;
+            ctx.fillStyle = isBuying ? upColor : downColor;
+            ctx.globalAlpha = 0.7;
+            ctx.fillRect(x - bodyW / 2, rectY, bodyW, Math.min(rectH - 0.5, yBot - rectY));
+        }
+        ctx.globalAlpha = 1;
+        // Border
+        ctx.strokeStyle = theme.candleBorder || 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(x - bodyW / 2 + 0.5, yTop + 0.5, bodyW, bodyH);
+    }
+    ctx.restore();
+}
+
+// ============================================================
+// 10. NUMBERED CANDLES — candles with numbers displayed on them
+// ============================================================
+/**
+ * Numbered Candles: draws regular candles, then overlays the candle's
+ * close price (or index number) as text inside or next to each candle body.
+ * The number is drawn at the candle's close price level.
+ */
+export function drawNumberedCandles(ctx, vp, dm, theme, manager) {
+    // Draw regular candles first
+    manager._drawCandleVariant(ctx, vp, dm, theme, 'candles');
+
+    const { opens, closes } = dm.raw();
+    const leftIdx = Math.max(0, Math.floor(vp.leftEdge));
+    const rightIdx = Math.min(dm.size - 1, Math.ceil(vp.rightEdge));
+    if (rightIdx < leftIdx) return;
+
+    const barSpacing = vp.barSpacing;
+    if (barSpacing < 5) return; // too zoomed out for numbers
+
+    ctx.save();
+    ctx.font = `${Math.max(7, Math.min(10, barSpacing * 0.5))}px 'JetBrains Mono', monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    for (let i = leftIdx; i <= rightIdx; i++) {
+        const o = opens[i], c = closes[i];
+        const x = vp.indexToX(i) + barSpacing / 2;
+        const isUp = c >= o;
+        const yClose = vp.priceToY(c);
+        const yOpen = vp.priceToY(o);
+        const yMid = (yClose + yOpen) / 2;
+
+        // Draw the close price as a small number at the candle's midpoint
+        const label = c.toFixed(c >= 1000 ? 0 : 2);
+        // Background for readability
+        const m = ctx.measureText(label);
+        const padX = 2, padY = 1;
+        ctx.fillStyle = isUp ? theme.upColor : theme.downColor;
+        ctx.globalAlpha = 0.85;
+        ctx.fillRect(x - m.width / 2 - padX, yMid - 5, m.width + padX * 2, 10);
+        ctx.globalAlpha = 1;
+        // Text
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, x, yMid);
+    }
+    ctx.restore();
+}
+
 // Registry of advanced chart types and their draw functions.
 export const ADVANCED_CHART_TYPES = {
     renko:              (ctx, vp, dm, theme, mgr) => drawRenko(ctx, vp, dm, theme),
@@ -739,5 +914,8 @@ export const ADVANCED_CHART_TYPES = {
     kagi:               (ctx, vp, dm, theme, mgr) => drawKagi(ctx, vp, dm, theme),
     heikinAshiSmoothed: (ctx, vp, dm, theme, mgr) => drawHeikinAshiSmoothed(ctx, vp, dm, theme, mgr),
     patternDetection:   (ctx, vp, dm, theme, mgr) => drawPatternDetection(ctx, vp, dm, theme, mgr),
-    animatedCandles:    (ctx, vp, dm, theme, mgr) => drawAnimatedCandles(ctx, vp, dm, theme, mgr)
+    animatedCandles:    (ctx, vp, dm, theme, mgr) => drawAnimatedCandles(ctx, vp, dm, theme, mgr),
+    biColorCandles:     (ctx, vp, dm, theme, mgr) => drawBiColorCandles(ctx, vp, dm, theme, mgr),
+    orderFlow:          (ctx, vp, dm, theme, mgr) => drawOrderFlowCandles(ctx, vp, dm, theme, mgr),
+    numberedCandles:    (ctx, vp, dm, theme, mgr) => drawNumberedCandles(ctx, vp, dm, theme, mgr)
 };
