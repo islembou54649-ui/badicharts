@@ -66,6 +66,9 @@ html, body {
     z-index: 0;
     pointer-events: none;
     overflow: hidden;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
 }
 .ac-bg-layer img,
 .ac-bg-layer video {
@@ -81,12 +84,14 @@ html, body {
 }
 
 
+/* Pane container sits ABOVE the background layer */
 .ac-pane-container {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    z-index: 1;
 }
 
 /* Shared canvas — fills the entire paneContainer, sits BELOW the pane wrappers */

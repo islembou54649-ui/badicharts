@@ -36,7 +36,7 @@ export class PaneManager {
         // Create the ONE shared canvas that fills the entire paneContainer.
         this.canvasContainer = DomUtils.el('div', { class: 'ac-shared-canvas-container' });
         this.container.appendChild(this.canvasContainer);
-        this.canvas = new Canvas(this.canvasContainer, { alpha: false });
+        this.canvas = new Canvas(this.canvasContainer, { alpha: true });
 
         // Create the main pane wrapper (for layout — no canvas inside)
         const main = this._createPaneWrapper('main', 'Price', initialHeight, true);

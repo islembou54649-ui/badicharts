@@ -243,8 +243,16 @@ export class ChartEngine {
         this.indicatorManager.updatePaneRanges(this.viewport, dm);
 
         // === 1. Background fill (entire canvas) ===
-        ctx.fillStyle = theme.chartBg;
-        ctx.fillRect(0, 0, canvasW, canvasH);
+        // CHANGED: if a custom background image/video/SVG is set, make the
+        // canvas background TRANSPARENT so the background layer shows through.
+        // Otherwise fill with the theme's chartBg color (solid/opaque).
+        if (this.background && this.background.type) {
+            // A custom background is active — make canvas transparent.
+            ctx.clearRect(0, 0, canvasW, canvasH);
+        } else {
+            ctx.fillStyle = theme.chartBg;
+            ctx.fillRect(0, 0, canvasW, canvasH);
+        }
 
         // === 1b. Brand watermark — drawn as a DOM overlay (NOT on canvas).
         //         See Watermark.js: it mounts an <img>/<svg> element in the

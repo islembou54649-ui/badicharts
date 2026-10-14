@@ -40,18 +40,20 @@ export class BackgroundManager {
         layer.style.cssText = `
             position: absolute;
             inset: 0;
-            z-index: -1;
+            z-index: 0;
             pointer-events: none;
             overflow: hidden;
             opacity: ${this._opacity};
             filter: contrast(${contrast});
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
         `;
 
         if (opts.type === 'image' && opts.src) {
-            const img = document.createElement('img');
-            img.src = opts.src;
-            img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-            layer.appendChild(img);
+            // Use CSS background-image — more reliable than <img> for
+            // overlay backgrounds that need to fill the container.
+            layer.style.backgroundImage = `url(${opts.src})`;
         } else if (opts.type === 'video' && opts.src) {
             const vid = document.createElement('video');
             vid.src = opts.src;
@@ -61,15 +63,8 @@ export class BackgroundManager {
             vid.playsInline = true;
             vid.style.cssText = 'width:100%;height:100%;object-fit:cover;';
             layer.appendChild(vid);
-        } else if (opts.type === 'svg' && opts.src) {
-            // Static SVG markup
-            layer.innerHTML = `
-                <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
-                    ${opts.src}
-                </div>
-            `;
-        } else if (opts.type === 'animated-svg' && opts.src) {
-            // Animated SVG — the markup can include CSS animations
+        } else if ((opts.type === 'svg' || opts.type === 'animated-svg') && opts.src) {
+            // SVG markup — center it in the layer.
             layer.innerHTML = `
                 <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
                     ${opts.src}
