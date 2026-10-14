@@ -1,18 +1,19 @@
 /**
- * VolumeProfile.js — Horizontal volume histogram (last N bars only).
+ * VolumeProfile.js — Horizontal volume histogram over the LAST 20 candles.
  *
- * CHANGED per user request:
- * - Only computes volume profile for the LAST 20 bars (not the entire
- *   visible range). This gives a "recent volume profile" that follows
- *   the latest price action.
- * - Draws the profile as STRIPS (thin horizontal bars) instead of
- *   filled rectangles — each price bucket gets a thin strip whose
- *   width is proportional to the volume at that level.
- * - Renders as an OVERLAY on top of the candles (not a separate pane).
- * - Also draws 3 prominent horizontal reference lines:
- *   - POC (Point of Control) — the price level with the highest volume.
- *   - VAH (Value Area High) — the upper price containing 70% of volume.
- *   - VAL (Value Area Low) — the lower price containing 70% of volume.
+ * Renders as STRIPS (thin horizontal bars) positioned directly OVER the
+ * x-range of the last 20 candles — not from the left edge of the chart,
+ * not from the right price axis.
+ *
+ * Design:
+ * - Computes volume distribution across price buckets for the last N bars.
+ * - Each bucket is drawn as a THIN horizontal strip (height proportional
+ *   to barSpacing, so it scales with zoom).
+ * - Strips are anchored at the LEFT edge of the last-N-candle range and
+ *   grow RIGHTWARD — staying within the candle area.
+ * - Width of each strip = (bucket volume / max volume) × candle area width.
+ * - Up volume = green strip (top half), down volume = red strip (bottom half).
+ * - 3 reference lines: POC, VAH, VAL — spanning the candle area only.
  */
 import { IndicatorBase } from '../IndicatorBase.js';
 
@@ -25,7 +26,7 @@ export class VolumeProfile extends IndicatorBase {
         this.color2 = opts.color2 || '#EA3943'; // down volume
         this.color3 = opts.color3 || '#FFC107'; // POC line
     }
-    defaultOptions() { return { buckets: 24, recentBars: 20, barWidthRatio: 0.35, showValueArea: true }; }
+    defaultOptions() { return { buckets: 20, recentBars: 20, showValueArea: true }; }
 
     visibleRange(viewport, dm) { return null; }
 
@@ -35,7 +36,7 @@ export class VolumeProfile extends IndicatorBase {
         const n = dm.size;
         if (n < 2) return;
 
-        // Only use the LAST N bars (default 20) for the volume profile.
+        // Only use the LAST N bars for the volume profile.
         const recentN = Math.min(this.options.recentBars || 20, n);
         const startIdx = n - recentN;
         const endIdx = n - 1;
@@ -91,82 +92,88 @@ export class VolumeProfile extends IndicatorBase {
             vaLow = lo; vaHigh = hi;
         }
 
-        const chartW = viewport.width - 70; // chart area width (excludes price scale)
-        const maxBarW = chartW * (this.options.barWidthRatio || 0.35);
-        const stripH = Math.max(1, viewport.priceHeight / NB * 0.6);
-        // Anchor the strips to the LEFT edge of the candle area (x=0),
-        // growing RIGHTWARD — so they overlay ON TOP of the candles,
-        // not stuck to the right-side price axis.
-        const stripAnchorX = 0;
+        // The x-range of the last N candles on screen.
+        const barSpacing = viewport.barSpacing;
+        const xStart = viewport.indexToX(startIdx);           // left edge of first candle
+        const xEnd = viewport.indexToX(endIdx) + barSpacing;  // right edge of last candle
+        const candleAreaW = Math.max(10, xEnd - xStart);
+
+        // Strip height scales with barSpacing — grows/shrinks with zoom.
+        // At barSpacing=8, stripH ≈ 5px. At barSpacing=2, stripH ≈ 1.5px.
+        const stripH = Math.max(1, barSpacing * 0.6);
 
         ctx.save();
-        // Draw strips — each bucket is a thin horizontal strip.
+
+        // Draw strips — each bucket is a thin horizontal strip positioned
+        // within the candle area (xStart to xEnd).
         for (let i = 0; i < NB; i++) {
             const priceLo = pMin + i * bucketSize;
             const priceHi = priceLo + bucketSize;
             const yMid = viewport.priceToY((priceLo + priceHi) / 2);
-            // Up volume strip (from the left edge, growing right).
-            const wUp = (upVol[i] / maxVol) * maxBarW;
+
+            // Up volume strip (top half of the strip row).
+            const wUp = (upVol[i] / maxVol) * candleAreaW;
             if (wUp > 0) {
-                ctx.fillStyle = this._withAlpha(this.color, 0.45);
-                ctx.fillRect(stripAnchorX, yMid - stripH / 2, wUp, stripH);
+                ctx.fillStyle = this._withAlpha(this.color, 0.50);
+                ctx.fillRect(xStart, yMid - stripH / 2, wUp, stripH / 2);
             }
-            // Down volume strip (overlaid, slightly offset).
-            const wDn = (dnVol[i] / maxVol) * maxBarW;
+            // Down volume strip (bottom half).
+            const wDn = (dnVol[i] / maxVol) * candleAreaW;
             if (wDn > 0) {
-                ctx.fillStyle = this._withAlpha(this.color2, 0.45);
-                ctx.fillRect(stripAnchorX, yMid + stripH / 2 - stripH, wDn, stripH);
+                ctx.fillStyle = this._withAlpha(this.color2, 0.50);
+                ctx.fillRect(xStart, yMid, wDn, stripH / 2);
             }
-            // Outline the dominant side.
+            // Thin outline on the dominant side for clarity.
             const domW = Math.max(wUp, wDn);
-            if (domW > 0) {
+            if (domW > 1) {
                 ctx.strokeStyle = (upVol[i] >= dnVol[i]) ? this.color : this.color2;
                 ctx.lineWidth = 0.5;
-                ctx.strokeRect(stripAnchorX + 0.5, yMid - stripH / 2 + 0.5, domW, stripH);
+                ctx.globalAlpha = 0.6;
+                ctx.strokeRect(xStart + 0.5, yMid - stripH / 2 + 0.5, domW - 1, stripH - 1);
+                ctx.globalAlpha = 1;
             }
         }
 
-        // --- 3 prominent reference lines ---
-        // POC (Point of Control)
+        // --- 3 reference lines (spanning the candle area only) ---
         const pocPrice = pMin + (pocBucket + 0.5) * bucketSize;
         const yPOC = viewport.priceToY(pocPrice);
         ctx.strokeStyle = this.color3;
         ctx.lineWidth = 1.5;
         ctx.setLineDash([6, 4]);
         ctx.beginPath();
-        ctx.moveTo(0, yPOC + 0.5);
-        ctx.lineTo(chartW, yPOC + 0.5);
+        ctx.moveTo(xStart, yPOC + 0.5);
+        ctx.lineTo(xEnd, yPOC + 0.5);
         ctx.stroke();
-        // VAH (Value Area High)
+
         const vahPrice = pMin + (vaHigh + 1) * bucketSize;
         const yVAH = viewport.priceToY(vahPrice);
         ctx.strokeStyle = this.color;
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 3]);
         ctx.beginPath();
-        ctx.moveTo(0, yVAH + 0.5);
-        ctx.lineTo(chartW, yVAH + 0.5);
+        ctx.moveTo(xStart, yVAH + 0.5);
+        ctx.lineTo(xEnd, yVAH + 0.5);
         ctx.stroke();
-        // VAL (Value Area Low)
+
         const valPrice = pMin + vaLow * bucketSize;
         const yVAL = viewport.priceToY(valPrice);
         ctx.strokeStyle = this.color2;
         ctx.beginPath();
-        ctx.moveTo(0, yVAL + 0.5);
-        ctx.lineTo(chartW, yVAL + 0.5);
+        ctx.moveTo(xStart, yVAL + 0.5);
+        ctx.lineTo(xEnd, yVAL + 0.5);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Labels on the right side (just inside the chart area).
+        // Labels at the right edge of the candle area.
         ctx.font = "bold 9px 'JetBrains Mono', monospace";
-        ctx.textAlign = 'right';
+        ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = this.color3;
-        ctx.fillText('POC ' + this._fmtPrice(pocPrice), chartW - 4, yPOC - 6);
+        ctx.fillText('POC ' + this._fmtPrice(pocPrice), xEnd + 4, yPOC);
         ctx.fillStyle = this.color;
-        ctx.fillText('VAH ' + this._fmtPrice(vahPrice), chartW - 4, yVAH - 6);
+        ctx.fillText('VAH ' + this._fmtPrice(vahPrice), xEnd + 4, yVAH);
         ctx.fillStyle = this.color2;
-        ctx.fillText('VAL ' + this._fmtPrice(valPrice), chartW - 4, yVAL + 6);
+        ctx.fillText('VAL ' + this._fmtPrice(valPrice), xEnd + 4, yVAL);
 
         ctx.restore();
     }
@@ -177,5 +184,3 @@ export class VolumeProfile extends IndicatorBase {
         return p.toFixed(4);
     }
 }
-
-
