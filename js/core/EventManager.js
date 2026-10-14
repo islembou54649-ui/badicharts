@@ -289,7 +289,16 @@ export class EventManager {
             this._updatePaneButtonHover(x, y);
         }
 
-        this.engine.crosshair.update(x, y, this.pointerInside);
+        // On mobile (screen < 768px), don't show the crosshair — it's a
+        // mouse-only feature. On touch screens there's no hover, so the
+        // crosshair doesn't make sense and is distracting.
+        const isMobileScreen = window.innerWidth < 768;
+        if (!isMobileScreen) {
+            this.engine.crosshair.update(x, y, this.pointerInside);
+        } else {
+            // Hide crosshair on mobile screens.
+            this.engine.crosshair.visible = false;
+        }
         this.engine.requestRender();
     }
 
