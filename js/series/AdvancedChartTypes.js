@@ -732,14 +732,32 @@ export function drawAnimatedCandles(ctx, vp, dm, theme, manager) {
 }
 
 // ============================================================
-// 8. BICOLOR CANDLES — body split into two colors (left/right halves)
+// 8. BICOLOR CANDLES — body split into red/green rectangles
 // ============================================================
 /**
- * BiColor Candles: each candle body is split VERTICALLY into two halves.
- * The LEFT half = red (selling pressure).
- * The RIGHT half = green (buying pressure).
- * This gives a distinctive visual where you can see "buying vs selling"
- * pressure within each candle, side by side.
+ * BiColor Candles: each candle body is split VERTICALLY into two
+ * groups of small rectangles:
+ *   - LEFT group = RED (selling pressure)
+ *   - RIGHT group = GREEN (buying pressure)
+ *
+ * The WIDTH of each group is proportional to the relative strength of
+ * buyers vs sellers in that candle:
+ *   - If the candle is strongly bullish (large body, close near high),
+ *     the green group is WIDER than the red group.
+ *   - If the candle is strongly bearish (large body, close near low),
+ *     the red group is WIDER.
+ *   - If the candle is balanced (doji-like), both groups are equal.
+ *
+ * Each group is drawn as a stack of small horizontal rectangles
+ * (like an order-flow footprint) with slight transparency so the
+ * candles behind remain visible.
+ *
+ * The "strength ratio" is computed from:
+ *   buyStrength = (close - low) / (high - low)   — how close to the high
+ *   sellStrength = (high - close) / (high - low)  — how close to the low
+ *   ratio = buyStrength / (buyStrength + sellStrength)
+ *   greenWidth = bodyW * ratio
+ *   redWidth = bodyW * (1 - ratio)
  */
 export function drawBiColorCandles(ctx, vp, dm, theme, manager) {
     const { opens, highs, lows, closes } = dm.raw();
@@ -748,13 +766,13 @@ export function drawBiColorCandles(ctx, vp, dm, theme, manager) {
     if (rightIdx < leftIdx) return;
 
     const barSpacing = vp.barSpacing;
-    const bodyW = Math.max(1, barSpacing * 0.7);
+    const bodyW = Math.max(2, barSpacing * 0.7);
     ctx.save();
     for (let i = leftIdx; i <= rightIdx; i++) {
         const o = opens[i], h = highs[i], l = lows[i], c = closes[i];
         const x = vp.indexToX(i) + barSpacing / 2;
         const isUp = c >= o;
-        const upColor = theme.upColor;   // green
+        const upColor = theme.upColor;     // green
         const downColor = theme.downColor; // red
         const yHigh = vp.priceToY(h);
         const yLow = vp.priceToY(l);
@@ -763,9 +781,26 @@ export function drawBiColorCandles(ctx, vp, dm, theme, manager) {
         const yTop = Math.min(yOpen, yClose);
         const yBot = Math.max(yOpen, yClose);
         const bodyH = Math.max(1, yBot - yTop);
-        const halfW = bodyW / 2;
 
-        // Wick
+        // --- Compute buyer/seller strength ratio ---
+        // buyStrength = how far the close is above the low (0..1)
+        // sellStrength = how far the close is below the high (0..1)
+        const range = h - l;
+        let buyStrength, sellStrength;
+        if (range > 0) {
+            buyStrength = Math.max(0, (c - l) / range);
+            sellStrength = Math.max(0, (h - c) / range);
+        } else {
+            buyStrength = 0.5;
+            sellStrength = 0.5;
+        }
+        const total = buyStrength + sellStrength;
+        const ratio = total > 0 ? buyStrength / total : 0.5;
+        // greenWidth = proportion of body width for green (buyers)
+        const greenW = bodyW * ratio;
+        const redW = bodyW - greenW;
+
+        // --- Wick ---
         ctx.strokeStyle = isUp ? (theme.upWick || upColor) : (theme.downWick || downColor);
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -773,14 +808,38 @@ export function drawBiColorCandles(ctx, vp, dm, theme, manager) {
         ctx.lineTo(x + 0.5, yLow);
         ctx.stroke();
 
-        // Body — LEFT half = red (down/selling), RIGHT half = green (up/buying)
-        // The split is always red-left / green-right regardless of candle direction.
-        ctx.fillStyle = downColor; // red — left half
-        ctx.fillRect(x - bodyW / 2, yTop, halfW, bodyH);
-        ctx.fillStyle = upColor;   // green — right half
-        ctx.fillRect(x - bodyW / 2 + halfW, yTop, halfW, bodyH);
+        // --- Body: stack of small rectangles ---
+        // Rectangle height scales with zoom.
+        const rectH = Math.max(2, barSpacing * 0.25);
+        const numRects = Math.max(1, Math.floor(bodyH / rectH));
 
-        // Border
+        // Left group (red / selling) — from x - bodyW/2 to x - bodyW/2 + redW
+        const leftStart = x - bodyW / 2;
+        // Right group (green / buying) — from leftStart + redW to x + bodyW/2
+        const rightStart = leftStart + redW;
+
+        ctx.globalAlpha = 0.75; // semi-transparent
+
+        for (let r = 0; r < numRects; r++) {
+            const rectY = yTop + r * rectH;
+            const rectYEnd = Math.min(rectY + rectH - 0.5, yBot);
+            const rectActualH = rectYEnd - rectY;
+            if (rectActualH <= 0) continue;
+
+            // Left rectangle (red)
+            if (redW > 0.5) {
+                ctx.fillStyle = downColor;
+                ctx.fillRect(leftStart, rectY, redW - 0.3, rectActualH);
+            }
+            // Right rectangle (green)
+            if (greenW > 0.5) {
+                ctx.fillStyle = upColor;
+                ctx.fillRect(rightStart, rectY, greenW - 0.3, rectActualH);
+            }
+        }
+        ctx.globalAlpha = 1;
+
+        // --- Border ---
         ctx.strokeStyle = theme.candleBorder || 'rgba(0,0,0,0.3)';
         ctx.lineWidth = 0.5;
         ctx.strokeRect(x - bodyW / 2 + 0.5, yTop + 0.5, bodyW, bodyH);
