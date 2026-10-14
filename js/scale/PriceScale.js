@@ -31,13 +31,13 @@ export class PriceScale {
             // Very small phones
             this._responsiveWidth = 38;
             this._responsiveFontSize = 8;
-            this._responsiveTickCount = 5;
+            this._responsiveTickCount = 10;
             this._isMobile = true;
         } else if (w < 768) {
             // Normal phones
             this._responsiveWidth = 42;
             this._responsiveFontSize = 8;
-            this._responsiveTickCount = 6;
+            this._responsiveTickCount = 12;
             this._isMobile = true;
         } else {
             // Desktop / tablet
