@@ -64,12 +64,22 @@ export class BackgroundManager {
             vid.style.cssText = 'width:100%;height:100%;object-fit:cover;';
             layer.appendChild(vid);
         } else if ((opts.type === 'svg' || opts.type === 'animated-svg') && opts.src) {
-            // SVG markup — center it in the layer.
-            layer.innerHTML = `
-                <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
-                    ${opts.src}
-                </div>
-            `;
+            // SVG can come in two forms:
+            // 1. SVG MARKUP (starts with '<svg') — inject as innerHTML.
+            // 2. Data URL or http(s) URL — use as CSS background-image
+            //    (this is what happens when the user uploads an SVG file).
+            const src = opts.src.trim();
+            if (src.startsWith('<svg') || src.startsWith('<?xml')) {
+                // SVG markup — inject directly into the DOM.
+                layer.innerHTML = `
+                    <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
+                        ${src}
+                    </div>
+                `;
+            } else {
+                // Data URL or http URL — use as CSS background-image.
+                layer.style.backgroundImage = `url(${src})`;
+            }
         }
 
         this.chartArea.appendChild(layer);
