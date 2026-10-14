@@ -118,35 +118,38 @@ export class EventManager {
         // Detect DOUBLE-CLICK on the price axis or time axis → reset that axis
         // to auto-fit. TradingView behavior: dblclick on price axis resets the
         // vertical scale; dblclick on time axis resets the horizontal zoom.
-        const now = performance.now();
-        const isDoubleClick = (now - (this._lastClickTime || 0)) < 350
-            && Math.abs(x - (this._lastClickX || -9999)) < 5
-            && Math.abs(y - (this._lastClickY || -9999)) < 5;
-        this._lastClickTime = now;
-        this._lastClickX = x;
-        this._lastClickY = y;
+        //
+        // On MOBILE (screen < 768px), skip this check entirely — double-tap
+        // is handled separately in _onTouchEnd to avoid conflicts.
+        const isMobileScreen = window.innerWidth < 768;
+        if (!isMobileScreen) {
+            const now = performance.now();
+            const isDoubleClick = (now - (this._lastClickTime || 0)) < 350
+                && Math.abs(x - (this._lastClickX || -9999)) < 5
+                && Math.abs(y - (this._lastClickY || -9999)) < 5;
+            this._lastClickTime = now;
+            this._lastClickX = x;
+            this._lastClickY = y;
 
-        if (isDoubleClick) {
-            if (inPriceAxis) {
-                // Reset price scale to auto-fit — ONLY the price range,
-                // WITHOUT scrolling or changing the horizontal position.
-                // The chart stays where the user left it; only the
-                // vertical (price) scale is reset.
-                vp.autoScale = true;
-                vp.updatePriceRange(this.engine.dataManager);
-                this.engine.requestRender();
-                this.activeAction = 'none';
-                return;
-            } else if (inTimeAxis) {
-                // Reset horizontal zoom to default bar spacing.
-                // CHANGED: don't scrollToRight — stay at the current
-                // position. Only reset the bar spacing.
-                vp.barSpacing = 8;
-                vp.rightOffset = 10;
-                vp.updatePriceRange(this.engine.dataManager);
-                this.engine.requestRender();
-                this.activeAction = 'none';
-                return;
+            if (isDoubleClick) {
+                if (inPriceAxis) {
+                    // Reset price scale to auto-fit — ONLY the price range,
+                    // WITHOUT scrolling or changing the horizontal position.
+                    vp.autoScale = true;
+                    vp.updatePriceRange(this.engine.dataManager);
+                    this.engine.requestRender();
+                    this.activeAction = 'none';
+                    return;
+                } else if (inTimeAxis) {
+                    // Reset horizontal zoom to default bar spacing.
+                    // Don't scrollToRight — stay at the current position.
+                    vp.barSpacing = 8;
+                    vp.rightOffset = 10;
+                    vp.updatePriceRange(this.engine.dataManager);
+                    this.engine.requestRender();
+                    this.activeAction = 'none';
+                    return;
+                }
             }
         }
 
