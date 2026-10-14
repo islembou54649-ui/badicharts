@@ -83,35 +83,27 @@ export class PriceScale {
         const { min, max } = viewport.priceRange;
         const { ticks } = MathUtils.niceTicks(min, max, this.tickCount);
 
-        // Use smaller font on mobile to prevent overflow.
-        let fontPx = this.fontSize;
-        let padRight = this._isMobile ? 4 : 8;
-        ctx.font = `${fontPx}px ${this.fontFamily}`;
+        // On mobile, use compact formatting (fewer decimals) so the font
+        // can stay readable. E.g. 67250 instead of 67250.31.
+        const padRight = this._isMobile ? 4 : 8;
+        ctx.font = `${this.fontSize}px ${this.fontFamily}`;
         ctx.textBaseline = 'middle';
         ctx.fillStyle = theme.priceScaleText;
-
-        // Check if the longest label fits; if not, shrink font further.
-        const maxLabelW = w - padRight - 2;
-        let testLabel = MathUtils.formatPrice(max);
-        let testMetrics = ctx.measureText(testLabel);
-        while (testMetrics.width > maxLabelW && fontPx > 6) {
-            fontPx--;
-            ctx.font = `${fontPx}px ${this.fontFamily}`;
-            testMetrics = ctx.measureText(testLabel);
-        }
 
         for (const price of ticks) {
             if (price < min || price > max) continue;
             const py = viewport.priceToY(price);
-            // Gridline on chart — SOLID, very subtle
+            // Gridline on chart
             ctx.strokeStyle = theme.gridLine;
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(0, py + 0.5);
             ctx.lineTo(x, py + 0.5);
             ctx.stroke();
-            // Label — right-aligned, fit within the axis width
-            const label = MathUtils.formatPrice(price);
+            // Label — compact format on mobile to keep font readable
+            const label = this._isMobile
+                ? this._compactPrice(price)
+                : MathUtils.formatPrice(price);
             ctx.textAlign = 'right';
             ctx.fillStyle = theme.priceScaleText;
             ctx.fillText(label, x + w - padRight, py);
@@ -119,6 +111,22 @@ export class PriceScale {
 
         // Last price line + label
         this._drawLastPriceLine(ctx, viewport, theme);
+    }
+
+    /**
+     * Compact price formatting for mobile — removes unnecessary decimals
+     * so the number is shorter and the font can stay large.
+     * E.g. 67250.31 → "67,250" (with thousands separator, no decimals).
+     */
+    _compactPrice(price) {
+        if (price >= 1000) {
+            // Round to integer with thousands separator
+            return Math.round(price).toLocaleString('en-US');
+        } else if (price >= 1) {
+            return price.toFixed(1);
+        } else {
+            return price.toFixed(3);
+        }
     }
 
     /**
@@ -148,9 +156,12 @@ export class PriceScale {
 
         // Price tag on the scale — fits within the price scale width.
         const x = viewport.width - this.width;
-        const label = MathUtils.formatPrice(last.close);
-        // Auto-shrink font to fit the tag width.
-        let tagFontPx = this.fontSize + 1; // bold tag slightly bigger
+        // Use compact format on mobile so the tag text is shorter and the
+        // font can stay large (readable).
+        const label = this._isMobile
+            ? this._compactPrice(last.close)
+            : MathUtils.formatPrice(last.close);
+        let tagFontPx = this.fontSize + 1;
         ctx.font = `bold ${tagFontPx}px ${this.fontFamily}`;
         const padX = this._isMobile ? 2 : 4;
         const tagH = tagFontPx + 4;

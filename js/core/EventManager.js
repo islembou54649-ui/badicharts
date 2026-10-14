@@ -441,11 +441,12 @@ export class EventManager {
                 x: ((t1.clientX + t2.clientX) / 2) - rect.left,
                 y: ((t1.clientY + t2.clientY) / 2) - rect.top
             };
-            // Cancel any in-progress draw/select
             this.activeAction = 'none';
             this._touchPanActive = false;
+            // Stop inertia when pinch starts
+            this._stopInertia();
         } else if (e.touches.length === 1) {
-            // Single-finger touch — start pan (like TradingView mobile)
+            // Single-finger touch — start pan
             const rect = this.element.getBoundingClientRect();
             const touch = e.touches[0];
             this._touchStartX = touch.clientX - rect.left;
@@ -453,38 +454,51 @@ export class EventManager {
             this._touchLastX = this._touchStartX;
             this._touchLastY = this._touchStartY;
             this._touchStartTime = performance.now();
+            this._touchLastTime = this._touchStartTime;
             this._touchMoved = false;
             this._touchPanActive = false;
+            // Stop inertia on new touch
+            this._stopInertia();
         }
     }
 
     _onTouchMove(e) {
         if (e.touches.length === 2) {
-            // Two-finger pinch zoom
+            // Two-finger pinch zoom — smooth, anchored at midpoint
             e.preventDefault();
             const [t1, t2] = [e.touches[0], e.touches[1]];
             const dist = MathUtils.distance(t1.clientX, t1.clientY, t2.clientX, t2.clientY);
             if (this.pinchStartDist > 0 && this.pinchStartMid) {
-                const factor = dist / this.pinchStartDist;
-                // Zoom around the pinch midpoint (TradingView-style).
-                this.engine.viewport.zoomAt(this.pinchStartMid.x, factor);
-                this.engine.viewport.updatePriceRange(this.engine.dataManager);
+                // Use the RATIO of current distance to start distance,
+                // applied as a SMOOTH factor relative to the start spacing.
+                const rawFactor = dist / this.pinchStartDist;
+                // Clamp to prevent extreme zoom jumps
+                const factor = Math.max(0.3, Math.min(3.0, rawFactor));
+                const newSpacing = MathUtils.clamp(
+                    this.pinchStartSpacing * factor,
+                    this.engine.viewport.minBarSpacing,
+                    this.engine.viewport.maxBarSpacing
+                );
+                // Zoom around the pinch midpoint
+                const vp = this.engine.viewport;
+                const focalIndex = vp.xToIndex(this.pinchStartMid.x);
+                vp.barSpacing = newSpacing;
+                vp.scrollPosition = focalIndex - this.pinchStartMid.x / newSpacing;
+                vp.updatePriceRange(this.engine.dataManager);
                 this.engine.requestRender();
             }
         } else if (e.touches.length === 1 && this._touchStartX !== undefined) {
-            // Single-finger pan — horizontal and vertical.
+            // Single-finger pan
             const rect = this.element.getBoundingClientRect();
             const touch = e.touches[0];
             const x = touch.clientX - rect.left;
-            const y = touch.clientY - rect.top;
             const dx = x - this._touchLastX;
-            const dy = y - this._touchLastY;
+            const now = performance.now();
 
-            // Only activate pan after a small threshold (5px) to allow taps.
+            // Activate pan after 5px threshold
             if (!this._touchPanActive) {
                 const totalDx = x - this._touchStartX;
-                const totalDy = y - this._touchStartY;
-                if (Math.abs(totalDx) > 5 || Math.abs(totalDy) > 5) {
+                if (Math.abs(totalDx) > 5) {
                     this._touchPanActive = true;
                     this._touchMoved = true;
                 }
@@ -492,14 +506,19 @@ export class EventManager {
 
             if (this._touchPanActive) {
                 e.preventDefault();
-                // Horizontal pan (time axis)
                 this.engine.viewport.panBy(dx);
                 this.engine.viewport.updatePriceRange(this.engine.dataManager);
                 this.engine.requestRender();
+
+                // Track velocity for inertia
+                const dt = now - (this._touchLastTime || now);
+                if (dt > 0) {
+                    this._inertiaVelocity = dx / dt; // px per ms
+                }
             }
 
             this._touchLastX = x;
-            this._touchLastY = y;
+            this._touchLastTime = now;
         }
     }
 
@@ -508,12 +527,13 @@ export class EventManager {
             this.pinchStartDist = 0;
             this.pinchStartMid = null;
         }
-        // Check for double-tap (two quick taps within 350ms)
         if (e.touches.length === 0 && this._touchStartX !== undefined) {
             const now = performance.now();
+
+            // Double-tap detection
             if (!this._touchMoved && this._touchStartTime) {
                 if (this._lastTapTime && (now - this._lastTapTime) < 350) {
-                    // Double-tap detected — reset chart (fit all + auto-scale).
+                    // Double-tap — reset chart
                     this.engine.fitAll();
                     this.engine.viewport.autoScale = true;
                     this.engine.viewport.updatePriceRange(this.engine.dataManager);
@@ -523,12 +543,59 @@ export class EventManager {
                     this._lastTapTime = now;
                 }
             }
+
+            // Start inertia scrolling if the user was panning
+            if (this._touchPanActive && this._inertiaVelocity) {
+                this._startInertia(this._inertiaVelocity);
+            }
+
             this._touchStartX = undefined;
             this._touchPanActive = false;
+            this._inertiaVelocity = 0;
+        }
+    }
+
+    /**
+     * Inertia / momentum scrolling — after the user lifts their finger,
+     * the chart continues to scroll and gradually slows down (friction).
+     * This mimics the natural scrolling feel of TradingView mobile.
+     */
+    _startInertia(velocity) {
+        this._stopInertia();
+        // velocity is in px/ms. Cap it to prevent crazy speeds.
+        let v = Math.max(-3, Math.min(3, velocity));
+        if (Math.abs(v) < 0.05) return; // too slow, don't bother
+
+        const friction = 0.94; // per frame — lower = stops faster
+        const minSpeed = 0.01; // below this, stop
+        const frameMs = 16;   // ~60fps
+
+        const tick = () => {
+            if (Math.abs(v) < minSpeed) {
+                this._inertiaRaf = null;
+                return;
+            }
+            // Apply velocity as pan
+            const dx = v * frameMs;
+            this.engine.viewport.panBy(dx);
+            this.engine.viewport.updatePriceRange(this.engine.dataManager);
+            this.engine.requestRender();
+            // Apply friction
+            v *= friction;
+            this._inertiaRaf = requestAnimationFrame(tick);
+        };
+        this._inertiaRaf = requestAnimationFrame(tick);
+    }
+
+    _stopInertia() {
+        if (this._inertiaRaf) {
+            cancelAnimationFrame(this._inertiaRaf);
+            this._inertiaRaf = null;
         }
     }
 
     destroy() {
+        this._stopInertia();
         this.element.removeEventListener('pointerdown', this._onPointerDown);
         this.element.removeEventListener('pointermove', this._onPointerMove);
         this.element.removeEventListener('pointerup', this._onPointerUp);
