@@ -138,6 +138,14 @@ export class ChartEngine {
         this.themeManager.subscribe((theme) => {
             this.theme = theme;
             this.root.classList.toggle('ac-theme-light', theme.name === 'light');
+            // If the user has set a custom chart background, PRESERVE it
+            // across theme toggles instead of reverting to the theme default.
+            if (this.toolbar && this.toolbar._customChartBg) {
+                theme.chartBg = this.toolbar._customChartBg;
+                theme.background = this.toolbar._customChartBg;
+                document.documentElement.style.setProperty('--ac-bg', this.toolbar._customChartBg);
+                this.root.style.background = this.toolbar._customChartBg;
+            }
             // Re-apply watermark colors on theme change.
             if (this.watermark) this.watermark.applyTheme(theme);
             this.requestRender();
