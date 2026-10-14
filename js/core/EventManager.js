@@ -556,10 +556,32 @@ export class EventManager {
             // Double-tap detection
             if (!this._touchMoved && this._touchStartTime) {
                 if (this._lastTapTime && (now - this._lastTapTime) < 350) {
-                    // Double-tap — reset chart
-                    this.engine.fitAll();
-                    this.engine.viewport.autoScale = true;
-                    this.engine.viewport.updatePriceRange(this.engine.dataManager);
+                    // Double-tap detected.
+                    // CHANGED: do NOT call fitAll() — that jumps to the end.
+                    // Instead, only reset the price scale (auto-scale) and
+                    // keep the chart at its current horizontal position.
+                    const vp = this.engine.viewport;
+                    const regions = this.engine.indicatorManager.paneManager.getRegions();
+                    const timeAxisRegion = regions.find(r => r.id === 'timeaxis');
+                    const inTimeAxis = timeAxisRegion && this._touchStartY >= timeAxisRegion.rect.y;
+                    const priceAxisW = this.engine.priceScale.width;
+                    const inPriceAxis = this._touchStartX >= vp.width - priceAxisW;
+
+                    if (inPriceAxis) {
+                        // Double-tap on price axis → reset price scale only
+                        vp.autoScale = true;
+                        vp.updatePriceRange(this.engine.dataManager);
+                    } else if (inTimeAxis) {
+                        // Double-tap on time axis → reset bar spacing only
+                        vp.barSpacing = 8;
+                        vp.rightOffset = 10;
+                        vp.updatePriceRange(this.engine.dataManager);
+                    } else {
+                        // Double-tap on chart area → reset price scale only
+                        // (NOT fitAll — don't jump to the end)
+                        vp.autoScale = true;
+                        vp.updatePriceRange(this.engine.dataManager);
+                    }
                     this.engine.requestRender();
                     this._lastTapTime = 0;
                 } else {
