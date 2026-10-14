@@ -445,6 +445,10 @@ export class EventManager {
             this._touchPanActive = false;
             // Stop inertia when pinch starts
             this._stopInertia();
+            // Track the focal index that should stay under the pinch midpoint.
+            this._pinchFocalIndex = this.engine.viewport.xToIndex(this.pinchStartMid.x);
+            // Track the last distance for incremental zoom.
+            this._pinchLastDist = this.pinchStartDist;
         } else if (e.touches.length === 1) {
             // Single-finger touch — start pan
             const rect = this.element.getBoundingClientRect();
@@ -464,29 +468,35 @@ export class EventManager {
 
     _onTouchMove(e) {
         if (e.touches.length === 2) {
-            // Two-finger pinch zoom — smooth, anchored at midpoint
+            // Two-finger pinch zoom — INCREMENTAL approach for smoothness.
+            // Instead of computing the total ratio from start, we compute
+            // the incremental ratio since the LAST frame and apply it.
+            // This prevents accumulated drift and jumpiness.
             e.preventDefault();
             const [t1, t2] = [e.touches[0], e.touches[1]];
             const dist = MathUtils.distance(t1.clientX, t1.clientY, t2.clientX, t2.clientY);
-            if (this.pinchStartDist > 0 && this.pinchStartMid) {
-                // Use the RATIO of current distance to start distance,
-                // applied as a SMOOTH factor relative to the start spacing.
-                const rawFactor = dist / this.pinchStartDist;
-                // Clamp to prevent extreme zoom jumps
-                const factor = Math.max(0.3, Math.min(3.0, rawFactor));
-                const newSpacing = MathUtils.clamp(
-                    this.pinchStartSpacing * factor,
-                    this.engine.viewport.minBarSpacing,
-                    this.engine.viewport.maxBarSpacing
-                );
-                // Zoom around the pinch midpoint
+            if (this._pinchLastDist > 0) {
                 const vp = this.engine.viewport;
-                const focalIndex = vp.xToIndex(this.pinchStartMid.x);
+                // Incremental ratio: how much did the pinch change since last frame?
+                const incrementalRatio = dist / this._pinchLastDist;
+                // Clamp the incremental ratio to prevent single-frame jumps.
+                const clampedRatio = Math.max(0.85, Math.min(1.15, incrementalRatio));
+                const oldSpacing = vp.barSpacing;
+                let newSpacing = oldSpacing * clampedRatio;
+                newSpacing = MathUtils.clamp(newSpacing, vp.minBarSpacing, vp.maxBarSpacing);
+                if (newSpacing === oldSpacing) {
+                    // Hit the limit — just update lastDist and return.
+                    this._pinchLastDist = dist;
+                    return;
+                }
+                // Keep the focal index under the pinch midpoint stable.
+                // The focal index was captured at pinch start.
                 vp.barSpacing = newSpacing;
-                vp.scrollPosition = focalIndex - this.pinchStartMid.x / newSpacing;
+                vp.scrollPosition = this._pinchFocalIndex - this.pinchStartMid.x / newSpacing;
                 vp.updatePriceRange(this.engine.dataManager);
                 this.engine.requestRender();
             }
+            this._pinchLastDist = dist;
         } else if (e.touches.length === 1 && this._touchStartX !== undefined) {
             // Single-finger pan
             const rect = this.element.getBoundingClientRect();
