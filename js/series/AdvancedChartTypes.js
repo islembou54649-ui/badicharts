@@ -732,14 +732,14 @@ export function drawAnimatedCandles(ctx, vp, dm, theme, manager) {
 }
 
 // ============================================================
-// 8. BICOLOR CANDLES — body split into two colors (top/bottom halves)
+// 8. BICOLOR CANDLES — body split into two colors (left/right halves)
 // ============================================================
 /**
- * BiColor Candles: each candle body is split into two halves.
- * The top half = the color of the candle's direction (up=green, down=red).
- * The bottom half = the opposite color.
+ * BiColor Candles: each candle body is split VERTICALLY into two halves.
+ * The LEFT half = red (selling pressure).
+ * The RIGHT half = green (buying pressure).
  * This gives a distinctive visual where you can see "buying vs selling"
- * pressure within each candle.
+ * pressure within each candle, side by side.
  */
 export function drawBiColorCandles(ctx, vp, dm, theme, manager) {
     const { opens, highs, lows, closes } = dm.raw();
@@ -754,8 +754,8 @@ export function drawBiColorCandles(ctx, vp, dm, theme, manager) {
         const o = opens[i], h = highs[i], l = lows[i], c = closes[i];
         const x = vp.indexToX(i) + barSpacing / 2;
         const isUp = c >= o;
-        const upColor = theme.upColor;
-        const downColor = theme.downColor;
+        const upColor = theme.upColor;   // green
+        const downColor = theme.downColor; // red
         const yHigh = vp.priceToY(h);
         const yLow = vp.priceToY(l);
         const yOpen = vp.priceToY(o);
@@ -763,7 +763,7 @@ export function drawBiColorCandles(ctx, vp, dm, theme, manager) {
         const yTop = Math.min(yOpen, yClose);
         const yBot = Math.max(yOpen, yClose);
         const bodyH = Math.max(1, yBot - yTop);
-        const halfH = bodyH / 2;
+        const halfW = bodyW / 2;
 
         // Wick
         ctx.strokeStyle = isUp ? (theme.upWick || upColor) : (theme.downWick || downColor);
@@ -773,11 +773,12 @@ export function drawBiColorCandles(ctx, vp, dm, theme, manager) {
         ctx.lineTo(x + 0.5, yLow);
         ctx.stroke();
 
-        // Body — top half = direction color, bottom half = opposite
-        ctx.fillStyle = isUp ? upColor : downColor;
-        ctx.fillRect(x - bodyW / 2, yTop, bodyW, halfH);
-        ctx.fillStyle = isUp ? downColor : upColor;
-        ctx.fillRect(x - bodyW / 2, yTop + halfH, bodyW, halfH);
+        // Body — LEFT half = red (down/selling), RIGHT half = green (up/buying)
+        // The split is always red-left / green-right regardless of candle direction.
+        ctx.fillStyle = downColor; // red — left half
+        ctx.fillRect(x - bodyW / 2, yTop, halfW, bodyH);
+        ctx.fillStyle = upColor;   // green — right half
+        ctx.fillRect(x - bodyW / 2 + halfW, yTop, halfW, bodyH);
 
         // Border
         ctx.strokeStyle = theme.candleBorder || 'rgba(0,0,0,0.3)';
