@@ -470,44 +470,45 @@ export class ChartEngine {
      */
     _drawPaneTitleWithControls(ctx, pane, theme) {
         const yOffset = pane.isMain ? 28 : 4;
-        // The indicator-name strip can be horizontally scrolled via the
-        // mouse wheel when hovering over the top strip area. This lets
-        // the user see all indicator names even when 20+ are active.
-        if (this._indicatorScrollX === undefined) this._indicatorScrollX = 0;
-        let x = 8 - this._indicatorScrollX;
 
         // For the main pane, show the pane title ("Price") only if there are
-        // NO overlay indicators. If there are overlays, each overlay gets
-        // its own name+buttons row, and the "Price" label is redundant.
+        // NO overlay indicators.
         const indicators = pane.isMain
             ? this.indicatorManager.indicators.filter(i => i.type === 'overlay')
             : pane.indicators;
 
         if (indicators.length === 0 && pane.isMain) {
-            // No overlays — just show "Price" as before.
             ctx.font = "bold 11px 'Inter', sans-serif";
             ctx.fillStyle = theme.textColor;
             ctx.textAlign = 'left';
             ctx.textBaseline = 'top';
-            ctx.fillText(pane.title, x, yOffset);
+            ctx.fillText(pane.title, 8, yOffset);
             pane._buttons = [];
             return;
         }
 
-        // Build the full button list (with positions) for ALL indicators.
+        // VERTICAL layout: each indicator gets its own row.
+        // Maximum 10 rows visible. If there are more, show a "+N more" row.
+        const MAX_ROWS = 10;
+        const ROW_H = 18;
         const allButtons = [];
-        // Draw each indicator's name + its 3 buttons (eye / sliders / remove).
-        // (The ⇅ reverse button is omitted — it's rarely used and clutters the row.)
+        const visibleCount = Math.min(indicators.length, MAX_ROWS);
+        const hiddenCount = indicators.length - MAX_ROWS;
+
         ctx.font = "bold 11px 'Inter', sans-serif";
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
 
-        for (const ind of indicators) {
-            // --- Indicator name (always visible; dimmed if hidden) ---
+        for (let idx = 0; idx < visibleCount; idx++) {
+            const ind = indicators[idx];
+            const rowY = yOffset + idx * ROW_H;
+            let x = 8;
+
+            // --- Indicator name (dimmed if hidden) ---
             const label = ind.name || 'Indicator';
             ctx.fillStyle = ind.visible ? theme.textColor : theme.mutedText;
             ctx.globalAlpha = ind.visible ? 1.0 : 0.5;
-            ctx.fillText(label, x, yOffset);
+            ctx.fillText(label, x, rowY);
             const labelW = ctx.measureText(label).width;
             ctx.globalAlpha = 1;
             x += labelW + 6;
@@ -515,7 +516,7 @@ export class ChartEngine {
             // --- Eye (show/hide) button ---
             const eyeBtn = {
                 id: 'toggle', indicatorId: ind.id,
-                x: x, y: yOffset - 1, w: 18, h: 16,
+                x: x, y: rowY - 1, w: 18, h: 16,
                 hovered: false, active: ind.visible,
                 iconType: 'eye',
                 visible: ind.visible,
@@ -524,10 +525,10 @@ export class ChartEngine {
             allButtons.push(eyeBtn);
             x += 18 + 4;
 
-            // --- Sliders (settings) button ---
+            // --- Gear (settings) button ---
             const setBtn = {
                 id: 'settings', indicatorId: ind.id,
-                x: x, y: yOffset - 1, w: 18, h: 16,
+                x: x, y: rowY - 1, w: 18, h: 16,
                 hovered: false, active: false,
                 iconType: 'sliders',
                 hoverT: 0
@@ -535,20 +536,29 @@ export class ChartEngine {
             allButtons.push(setBtn);
             x += 18 + 4;
 
-            // --- Remove (✕) button ---
+            // --- Trash (remove) button ---
             const rmBtn = {
                 id: 'remove', indicatorId: ind.id,
-                x: x, y: yOffset - 1, w: 18, h: 16,
+                x: x, y: rowY - 1, w: 18, h: 16,
                 hovered: false, active: false,
                 iconType: 'cross',
                 hoverT: 0
             };
             allButtons.push(rmBtn);
-            x += 18 + 12; // extra gap between indicator groups
         }
 
-        // --- Merge with existing button hover/hoverT state ---
-        // Preserve hover state and animation progress from the previous frame.
+        // --- "+N more" row if there are hidden indicators ---
+        if (hiddenCount > 0) {
+            const moreY = yOffset + visibleCount * ROW_H;
+            ctx.fillStyle = theme.accent || '#12C4F0';
+            ctx.font = "bold 11px 'Inter', sans-serif";
+            ctx.fillText('+' + hiddenCount + ' more…', 8, moreY);
+            // Store the "more" row for click handling (opens a dropdown if needed).
+            this._indicatorMoreY = moreY;
+            this._indicatorHiddenCount = hiddenCount;
+        }
+
+        // --- Merge with existing button hover state ---
         if (pane._buttons) {
             const prevMap = new Map();
             for (const b of pane._buttons) {
@@ -563,40 +573,30 @@ export class ChartEngine {
             }
         }
 
-        // --- Animate hoverT towards hovered?1:0 ---
+        // --- Animate hoverT ---
         let needsRerender = false;
         for (const btn of allButtons) {
             const target = btn.hovered ? 1 : 0;
-            const speed = 0.18; // per-frame lerp factor (~150ms to full)
+            const speed = 0.18;
             const newT = btn.hoverT + (target - btn.hoverT) * speed;
             if (Math.abs(newT - btn.hoverT) > 0.005) needsRerender = true;
             btn.hoverT = newT;
-            // Snap to 0/1 when close enough
             if (Math.abs(target - btn.hoverT) < 0.01) btn.hoverT = target;
         }
 
         // --- Draw buttons ---
         for (const btn of allButtons) {
-            // Background: only show on hover (no active background).
             let bgAlpha = 0;
             if (btn.hoverT > 0.01) bgAlpha = Math.max(bgAlpha, btn.hoverT * 0.7);
-
             if (bgAlpha > 0.01) {
-                // Rounded background
                 ctx.fillStyle = theme.toolbarBtn;
                 ctx.globalAlpha = bgAlpha;
                 this._roundRect(ctx, btn.x, btn.y, btn.w, btn.h, 3);
                 ctx.fill();
                 ctx.globalAlpha = 1;
             }
-
-            // Icon color: always gray (muted) like other icons, brighter on hover.
-            // The eye icon no longer turns green when the indicator is visible —
-            // it stays gray like the settings gear and trash can icons.
             const iconColor = btn.hoverT > 0.3 ? theme.textColor : theme.mutedText;
-            // Slight scale-up on hover for a "pop" effect
             const scale = 1 + btn.hoverT * 0.12;
-
             ctx.save();
             const cx = btn.x + btn.w / 2;
             const cy = btn.y + btn.h / 2 + 1;
@@ -605,26 +605,15 @@ export class ChartEngine {
             ctx.translate(-cx, -cy);
             ctx.strokeStyle = iconColor;
             ctx.fillStyle = iconColor;
-
             switch (btn.iconType) {
-                case 'eye':
-                    this._drawEyeIcon(ctx, btn.x, btn.y, btn.w, btn.h, btn.visible);
-                    break;
-                case 'sliders':
-                    this._drawSlidersIcon(ctx, btn.x, btn.y, btn.w, btn.h);
-                    break;
-                case 'cross':
-                    this._drawCrossIcon(ctx, btn.x, btn.y, btn.w, btn.h);
-                    break;
+                case 'eye': this._drawEyeIcon(ctx, btn.x, btn.y, btn.w, btn.h, btn.visible); break;
+                case 'sliders': this._drawSlidersIcon(ctx, btn.x, btn.y, btn.w, btn.h); break;
+                case 'cross': this._drawCrossIcon(ctx, btn.x, btn.y, btn.w, btn.h); break;
             }
             ctx.restore();
         }
 
-        // Store buttons for hit-testing
         pane._buttons = allButtons;
-
-        // If any button is mid-animation, request another render frame so
-        // the hover transition is smooth.
         if (needsRerender) this.requestRender();
     }
 

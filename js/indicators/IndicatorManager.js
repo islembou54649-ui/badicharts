@@ -35,6 +35,7 @@ import { EnvChannel } from '../indicators/overlays/EnvChannel.js';
 import { EMAribbon } from '../indicators/overlays/EMAribbon.js';
 import { WilliamsFractals } from '../indicators/overlays/WilliamsFractals.js';
 import { HeikinAshi } from '../indicators/overlays/HeikinAshi.js';
+import { BuySellSignals } from '../indicators/overlays/BuySellSignals.js';
 
 import { RSI } from '../indicators/panes/RSI.js';
 import { MACD } from '../indicators/panes/MACD.js';
@@ -78,7 +79,8 @@ export const INDICATOR_REGISTRY = {
     EMAribbon: { cls: EMAribbon, type: 'overlay', category: 'Moving Averages' },
     // Volume indicators — kept per user request
     Volume: { cls: Volume, type: 'pane', category: 'Volume' },
-    VolumeProfile: { cls: VolumeProfile, type: 'overlay', category: 'Volume' }
+    VolumeProfile: { cls: VolumeProfile, type: 'overlay', category: 'Volume' },
+    BuySellSignals: { cls: BuySellSignals, type: 'overlay', category: 'Signals' }
     // NOTE: All other indicators (RSI, MACD, Bollinger, Stochastic, OBV, MFI,
     // ATR, ADX, Ichimoku, SuperTrend, ParabolicSAR, ZigZag, PivotPoints,
     // WilliamsFractals, HeikinAshi, VWAP, AnchoredVWAP, Keltner, Donchian,
