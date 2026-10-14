@@ -193,6 +193,7 @@ export class ChartEngine {
         const height = Math.max(100, h);
         // Update responsive settings (mobile vs desktop) on resize.
         if (this.priceScale.updateResponsive) this.priceScale.updateResponsive();
+        if (this.timeScale.updateResponsive) this.timeScale.updateResponsive();
         this.viewport.setSize(width, height, 0);
         this.viewport.updatePriceRange(this.dataManager);
         this.crosshair._priceScaleWidth = this.priceScale.width;

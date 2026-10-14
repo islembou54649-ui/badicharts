@@ -10,11 +10,34 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 export class TimeScale {
     constructor(options = {}) {
-        this.height = options.height || 28;
-        this.fontSize = options.fontSize || 11;
+        this._updateResponsive();
+        this.height = options.height || this._responsiveHeight;
+        this.fontSize = options.fontSize || this._responsiveFontSize;
         this.fontFamily = options.fontFamily || "'JetBrains Mono', 'Consolas', monospace";
-        this.minTickSpacing = options.minTickSpacing || 70;
+        this._updateResponsive2();
+    }
+
+    _updateResponsive() {
+        const w = typeof window !== 'undefined' ? window.innerWidth : 1280;
+        if (w < 768) {
+            this._responsiveHeight = 22;
+            this._responsiveFontSize = 9;
+        } else {
+            this._responsiveHeight = 28;
+            this._responsiveFontSize = 11;
+        }
+    }
+
+    _updateResponsive2() {
+        this.minTickSpacing = (this._responsiveHeight < 25) ? 50 : 70;
         this.priceScaleWidth = 70; // set by ChartEngine
+    }
+
+    updateResponsive() {
+        this._updateResponsive();
+        this.height = this._responsiveHeight;
+        this.fontSize = this._responsiveFontSize;
+        this._updateResponsive2();
     }
 
     _pickFormatter(interval) {

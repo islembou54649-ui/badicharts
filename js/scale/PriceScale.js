@@ -12,23 +12,50 @@ import { MathUtils } from '../utils/MathUtils.js';
 
 export class PriceScale {
     constructor(options = {}) {
-        // Responsive width: narrower on mobile screens (< 768px).
-        this._isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-        this.width = options.width || (this._isMobile ? 50 : 72);
-        this.fontSize = options.fontSize || (this._isMobile ? 9 : 10);
+        this._updateResponsive();
+        // Allow explicit override via options.
+        this.width = options.width || this._responsiveWidth;
+        this.fontSize = options.fontSize || this._responsiveFontSize;
         this.fontFamily = options.fontFamily || "'JetBrains Mono', 'Consolas', monospace";
-        this.tickCount = options.tickCount || (this._isMobile ? 8 : 14);
+        this.tickCount = options.tickCount || this._responsiveTickCount;
         this.align = options.align || 'right';
     }
 
     /**
-     * Update mobile state on resize.
+     * Compute responsive values based on screen width.
+     * Three tiers: small phones (<380px), phones/tablets (<768px), desktop.
+     */
+    _updateResponsive() {
+        const w = typeof window !== 'undefined' ? window.innerWidth : 1280;
+        if (w < 380) {
+            // Very small phones
+            this._responsiveWidth = 38;
+            this._responsiveFontSize = 8;
+            this._responsiveTickCount = 5;
+            this._isMobile = true;
+        } else if (w < 768) {
+            // Normal phones
+            this._responsiveWidth = 42;
+            this._responsiveFontSize = 8;
+            this._responsiveTickCount = 6;
+            this._isMobile = true;
+        } else {
+            // Desktop / tablet
+            this._responsiveWidth = 72;
+            this._responsiveFontSize = 10;
+            this._responsiveTickCount = 14;
+            this._isMobile = false;
+        }
+    }
+
+    /**
+     * Update responsive state on resize.
      */
     updateResponsive() {
-        this._isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-        this.width = this._isMobile ? 50 : 72;
-        this.fontSize = this._isMobile ? 9 : 10;
-        this.tickCount = this._isMobile ? 8 : 14;
+        this._updateResponsive();
+        this.width = this._responsiveWidth;
+        this.fontSize = this._responsiveFontSize;
+        this.tickCount = this._responsiveTickCount;
     }
 
     /**
