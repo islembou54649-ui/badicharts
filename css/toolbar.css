@@ -128,16 +128,23 @@
 
 .ac-caret { font-size: 9px; opacity: 0.6; }
 
-/* Mobile responsive */
+/* Mobile responsive — TradingView-style compact toolbar */
 @media (max-width: 768px) {
-    .ac-toolbar { gap: 4px; padding: 0 4px; }
+    .ac-toolbar { gap: 2px; padding: 0 4px; flex-wrap: nowrap; overflow-x: auto; }
+    .ac-toolbar::-webkit-scrollbar { display: none; }
     .ac-brand-name { display: none; }
-    .ac-toolbar-group { padding: 0 4px; gap: 1px; }
-    .ac-toolbar-btn { min-width: 28px; height: 28px; padding: 0 6px; font-size: 12px; }
-    .ac-toolbar-btn-sm { min-width: 30px; padding: 0 4px; font-size: 10px; }
-    .ac-symbol-select { padding: 4px 6px; font-size: 11px; }
+    .ac-toolbar-group { padding: 0 2px; gap: 1px; }
+    .ac-toolbar-btn { min-width: 28px; height: 32px; padding: 0 6px; font-size: 13px; }
+    .ac-toolbar-btn-sm { min-width: 28px; padding: 0 4px; font-size: 10px; }
+    .ac-symbol-select { padding: 4px 6px; font-size: 11px; max-width: 90px; }
+    .ac-bg-opacity { width: 40px !important; }
+    .ac-toolbar-right { gap: 2px; }
 }
 @media (max-width: 480px) {
-    .ac-toolbar-brand { padding-right: 4px; margin-right: 2px; }
+    .ac-toolbar-brand { padding-right: 2px; margin-right: 2px; }
     .ac-brand-mark { width: 24px; height: 24px; font-size: 11px; }
+    .ac-toolbar-btn { min-width: 26px; height: 30px; padding: 0 4px; font-size: 12px; }
+    .ac-toolbar-btn-sm { min-width: 26px; padding: 0 3px; font-size: 9px; }
+    .ac-symbol-select { max-width: 75px; font-size: 10px; }
+    .ac-bg-opacity { display: none; }
 }

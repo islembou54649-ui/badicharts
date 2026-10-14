@@ -431,6 +431,7 @@ export class EventManager {
 
     _onTouchStart(e) {
         if (e.touches.length === 2) {
+            // Two-finger pinch zoom
             e.preventDefault();
             const [t1, t2] = [e.touches[0], e.touches[1]];
             this.pinchStartDist = MathUtils.distance(t1.clientX, t1.clientY, t2.clientX, t2.clientY);
@@ -442,24 +443,63 @@ export class EventManager {
             };
             // Cancel any in-progress draw/select
             this.activeAction = 'none';
+            this._touchPanActive = false;
+        } else if (e.touches.length === 1) {
+            // Single-finger touch — start pan (like TradingView mobile)
+            const rect = this.element.getBoundingClientRect();
+            const touch = e.touches[0];
+            this._touchStartX = touch.clientX - rect.left;
+            this._touchStartY = touch.clientY - rect.top;
+            this._touchLastX = this._touchStartX;
+            this._touchLastY = this._touchStartY;
+            this._touchStartTime = performance.now();
+            this._touchMoved = false;
+            this._touchPanActive = false;
         }
     }
 
     _onTouchMove(e) {
         if (e.touches.length === 2) {
+            // Two-finger pinch zoom
             e.preventDefault();
             const [t1, t2] = [e.touches[0], e.touches[1]];
             const dist = MathUtils.distance(t1.clientX, t1.clientY, t2.clientX, t2.clientY);
             if (this.pinchStartDist > 0 && this.pinchStartMid) {
                 const factor = dist / this.pinchStartDist;
-                this.engine.viewport.barSpacing = MathUtils.clamp(
-                    this.pinchStartSpacing * factor,
-                    this.engine.viewport.minBarSpacing,
-                    this.engine.viewport.maxBarSpacing
-                );
+                // Zoom around the pinch midpoint (TradingView-style).
+                this.engine.viewport.zoomAt(this.pinchStartMid.x, factor);
                 this.engine.viewport.updatePriceRange(this.engine.dataManager);
                 this.engine.requestRender();
             }
+        } else if (e.touches.length === 1 && this._touchStartX !== undefined) {
+            // Single-finger pan — horizontal and vertical.
+            const rect = this.element.getBoundingClientRect();
+            const touch = e.touches[0];
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+            const dx = x - this._touchLastX;
+            const dy = y - this._touchLastY;
+
+            // Only activate pan after a small threshold (5px) to allow taps.
+            if (!this._touchPanActive) {
+                const totalDx = x - this._touchStartX;
+                const totalDy = y - this._touchStartY;
+                if (Math.abs(totalDx) > 5 || Math.abs(totalDy) > 5) {
+                    this._touchPanActive = true;
+                    this._touchMoved = true;
+                }
+            }
+
+            if (this._touchPanActive) {
+                e.preventDefault();
+                // Horizontal pan (time axis)
+                this.engine.viewport.panBy(dx);
+                this.engine.viewport.updatePriceRange(this.engine.dataManager);
+                this.engine.requestRender();
+            }
+
+            this._touchLastX = x;
+            this._touchLastY = y;
         }
     }
 
@@ -467,6 +507,24 @@ export class EventManager {
         if (e.touches.length < 2) {
             this.pinchStartDist = 0;
             this.pinchStartMid = null;
+        }
+        // Check for double-tap (two quick taps within 350ms)
+        if (e.touches.length === 0 && this._touchStartX !== undefined) {
+            const now = performance.now();
+            if (!this._touchMoved && this._touchStartTime) {
+                if (this._lastTapTime && (now - this._lastTapTime) < 350) {
+                    // Double-tap detected — reset chart (fit all + auto-scale).
+                    this.engine.fitAll();
+                    this.engine.viewport.autoScale = true;
+                    this.engine.viewport.updatePriceRange(this.engine.dataManager);
+                    this.engine.requestRender();
+                    this._lastTapTime = 0;
+                } else {
+                    this._lastTapTime = now;
+                }
+            }
+            this._touchStartX = undefined;
+            this._touchPanActive = false;
         }
     }
 

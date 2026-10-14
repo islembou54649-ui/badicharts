@@ -191,8 +191,8 @@ export class ChartEngine {
     _onResize(w, h) {
         const width = Math.max(100, w);
         const height = Math.max(100, h);
-        // The viewport's width/height represents the entire canvas (all regions).
-        // The main region's height is computed from PaneManager.getRegions() at render time.
+        // Update responsive settings (mobile vs desktop) on resize.
+        if (this.priceScale.updateResponsive) this.priceScale.updateResponsive();
         this.viewport.setSize(width, height, 0);
         this.viewport.updatePriceRange(this.dataManager);
         this.crosshair._priceScaleWidth = this.priceScale.width;

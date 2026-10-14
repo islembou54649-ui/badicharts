@@ -12,11 +12,23 @@ import { MathUtils } from '../utils/MathUtils.js';
 
 export class PriceScale {
     constructor(options = {}) {
-        this.width = options.width || 72;
-        this.fontSize = options.fontSize || 10;
+        // Responsive width: narrower on mobile screens (< 768px).
+        this._isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+        this.width = options.width || (this._isMobile ? 50 : 72);
+        this.fontSize = options.fontSize || (this._isMobile ? 9 : 10);
         this.fontFamily = options.fontFamily || "'JetBrains Mono', 'Consolas', monospace";
-        this.tickCount = options.tickCount || 14; // FIX: was 7, user wants denser axis (~12+)
+        this.tickCount = options.tickCount || (this._isMobile ? 8 : 14);
         this.align = options.align || 'right';
+    }
+
+    /**
+     * Update mobile state on resize.
+     */
+    updateResponsive() {
+        this._isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+        this.width = this._isMobile ? 50 : 72;
+        this.fontSize = this._isMobile ? 9 : 10;
+        this.tickCount = this._isMobile ? 8 : 14;
     }
 
     /**
