@@ -348,6 +348,16 @@ export class EventManager {
     _onWheel(e) {
         e.preventDefault();
         const { x, y } = this._getPos(e);
+
+        // If the cursor is over the indicator-name strip (y < 48), scroll
+        // the indicator names horizontally instead of zooming the chart.
+        // This lets the user see all indicator names when 20+ are active.
+        if (y < 48 && !e.ctrlKey && !e.shiftKey) {
+            this.engine._indicatorScrollX = Math.max(0, (this.engine._indicatorScrollX || 0) + e.deltaY * 0.5);
+            this.engine.requestRender();
+            return;
+        }
+
         if (e.ctrlKey) {
             const factor = e.deltaY < 0 ? 1.1 : 0.9;
             this.engine.viewport.zoomAt(x, factor);

@@ -264,6 +264,10 @@ export class ChartEngine {
         // === 4. Current-price line (extends across ALL regions, unclipped) ===
         this._drawCurrentPriceLine(ctx, regions, theme, priceScaleW);
 
+        // === 4b. Countdown timer — moves with the current price line.
+        //         Shows the time remaining until the current candle closes.
+        this._drawCountdownTimer(ctx, regions, theme, priceScaleW, canvasW);
+
         // === 5. Time axis labels (bottom strip) — drawn BEFORE crosshair so the
         //        crosshair's time label appears ON TOP of the time axis background ===
         if (timeAxisRegion) {
@@ -444,7 +448,11 @@ export class ChartEngine {
      */
     _drawPaneTitleWithControls(ctx, pane, theme) {
         const yOffset = pane.isMain ? 28 : 4;
-        let x = 8;
+        // The indicator-name strip can be horizontally scrolled via the
+        // mouse wheel when hovering over the top strip area. This lets
+        // the user see all indicator names even when 20+ are active.
+        if (this._indicatorScrollX === undefined) this._indicatorScrollX = 0;
+        let x = 8 - this._indicatorScrollX;
 
         // For the main pane, show the pane title ("Price") only if there are
         // NO overlay indicators. If there are overlays, each overlay gets
@@ -902,6 +910,78 @@ export class ChartEngine {
     }
 
     /**
+     * Draw a countdown timer that moves with the current price line.
+     * The timer shows the time remaining until the current candle closes,
+     * based on the data feed's interval (e.g. 1m → 60s countdown).
+     *
+     * The timer is a small badge positioned just LEFT of the price tag,
+     * at the same Y as the current price line — so it visually "follows"
+     * the price as it moves up and down.
+     */
+    _drawCountdownTimer(ctx, regions, theme, priceScaleW, canvasW) {
+        const dm = this.dataManager;
+        if (dm.size === 0) return;
+        const last = dm.get(dm.size - 1);
+        if (!last) return;
+        const vp = this.viewport;
+        const mainRegion = regions.find(r => r.id === 'main');
+        if (!mainRegion) return;
+
+        const yInMain = vp.priceToY(last.close);
+        const absY = mainRegion.rect.y + yInMain;
+
+        // Compute the time remaining until the current candle closes.
+        // The candle's interval is dm.interval (ms). The candle started
+        // at `last.time` and closes at `last.time + interval`.
+        const interval = dm.interval || 60_000; // default 1 minute
+        const candleCloseTime = last.time + interval;
+        const now = Date.now();
+        let remaining = candleCloseTime - now;
+        if (remaining < 0) remaining = 0; // candle already closed, waiting for next
+
+        // Format as MM:SS
+        const totalSec = Math.floor(remaining / 1000);
+        const mm = String(Math.floor(totalSec / 60)).padStart(2, '0');
+        const ss = String(totalSec % 60).padStart(2, '0');
+        const timerLabel = mm + ':' + ss;
+
+        // Determine the color: green if > 50% remaining, yellow if 20-50%, red if < 20%.
+        const pct = remaining / interval;
+        let timerColor;
+        if (pct > 0.5) timerColor = theme.upColor;
+        else if (pct > 0.2) timerColor = '#FFC107';
+        else timerColor = theme.downColor;
+
+        ctx.save();
+        ctx.font = "bold 10px 'JetBrains Mono', monospace";
+        const m = ctx.measureText(timerLabel);
+        const timerW = m.width + 10;
+        const timerH = 14;
+        // Position just to the LEFT of the price tag (which is at canvasW - priceScaleW).
+        const tagX = canvasW - priceScaleW;
+        const tx = tagX - timerW - 2;
+        const ty = absY - timerH / 2;
+
+        // Background
+        ctx.fillStyle = timerColor;
+        ctx.fillRect(tx, ty, timerW, timerH);
+        // Text
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(timerLabel, tx + timerW / 2, absY);
+        ctx.restore();
+
+        // Request a re-render every second so the timer updates.
+        // We use a separate interval that's set up once.
+        if (!this._countdownTimerInterval) {
+            this._countdownTimerInterval = setInterval(() => {
+                this.requestRender();
+            }, 1000);
+        }
+    }
+
+    /**
      * Draw the crosshair across ALL regions (vertical line + horizontal line + labels).
      */
     _drawCrosshair(ctx, regions, dm, theme, priceScaleW, canvasW, canvasH) {
@@ -1281,6 +1361,7 @@ export class ChartEngine {
     destroy() {
         clearInterval(this._fpsTimer);
         clearInterval(this._followInterval);
+        if (this._countdownTimerInterval) clearInterval(this._countdownTimerInterval);
         this.dataFeed.stop();
         this.loop.stop();
         this.eventManager.destroy();
