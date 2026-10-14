@@ -42,6 +42,7 @@ import { Toolbar } from '../ui/Toolbar.js';
 import { ThemeManager } from '../ui/Theme.js';
 import { Watermark } from '../ui/Watermark.js';
 import { BackgroundManager } from '../ui/BackgroundManager.js';
+import { IndicatorSettingsModal } from '../ui/IndicatorSettingsModal.js';
 import { DrawingManager } from '../drawing/DrawingManager.js';
 import { DrawingSettingsCard } from '../ui/DrawingSettingsCard.js';
 import { IndicatorManager } from '../indicators/IndicatorManager.js';
@@ -115,6 +116,11 @@ export class ChartEngine {
         // Background manager — supports image/video/SVG backgrounds behind
         // the chart with opacity and contrast controls.
         this.background = new BackgroundManager(this.chartArea);
+
+        // Indicator settings modal — centered card for editing indicator
+        // settings (color, width, style, period, etc.). Opened via the
+        // gear icon on the indicator's button row.
+        this.indicatorModal = new IndicatorSettingsModal(this.overlayContainer, this);
 
         // Performance
         this.perf = new Performance();
@@ -555,24 +561,23 @@ export class ChartEngine {
 
         // --- Draw buttons ---
         for (const btn of allButtons) {
-            // Background: interpolate opacity from hoverT + active state
+            // Background: only show on hover (no active background).
             let bgAlpha = 0;
             if (btn.hoverT > 0.01) bgAlpha = Math.max(bgAlpha, btn.hoverT * 0.7);
-            if (btn.active) bgAlpha = Math.max(bgAlpha, 0.15);
 
             if (bgAlpha > 0.01) {
                 // Rounded background
-                ctx.fillStyle = btn.active ? theme.upColor : theme.toolbarBtn;
+                ctx.fillStyle = theme.toolbarBtn;
                 ctx.globalAlpha = bgAlpha;
                 this._roundRect(ctx, btn.x, btn.y, btn.w, btn.h, 3);
                 ctx.fill();
                 ctx.globalAlpha = 1;
             }
 
-            // Icon color: brighter on hover, colored when active
-            const iconColor = btn.active
-                ? theme.upColor
-                : (btn.hoverT > 0.3 ? theme.textColor : theme.mutedText);
+            // Icon color: always gray (muted) like other icons, brighter on hover.
+            // The eye icon no longer turns green when the indicator is visible —
+            // it stays gray like the settings gear and trash can icons.
+            const iconColor = btn.hoverT > 0.3 ? theme.textColor : theme.mutedText;
             // Slight scale-up on hover for a "pop" effect
             const scale = 1 + btn.hoverT * 0.12;
 
@@ -833,13 +838,8 @@ export class ChartEngine {
                     } else if (btn.id === 'toggle') {
                         ind.visible = !ind.visible;
                     } else if (btn.id === 'settings') {
-                        // Cycle through common periods
-                        const periods = [7, 14, 20, 21, 50, 100, 200];
-                        const cur = ind.options.period || 14;
-                        const idx = periods.indexOf(cur);
-                        const next = periods[(idx + 1) % periods.length];
-                        ind.options.period = next;
-                        ind._lastDataVersion = -1; // force recalc
+                        // Open the centered settings modal for this indicator.
+                        this.indicatorModal.show(ind);
                     } else if (btn.id === 'remove') {
                         this.indicatorManager.remove(ind.id);
                     }
