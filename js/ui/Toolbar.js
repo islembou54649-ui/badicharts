@@ -134,9 +134,60 @@ export class Toolbar {
         });
         themeBtn.addEventListener('click', () => this.engine.toggleTheme());
         liveBtn.addEventListener('click', () => this.engine.toggleLive());
-        rightGroup.append(zoomIn, zoomOut, fitBtn, clearBtn, themeBtn, liveBtn);
+
+        // Background upload button — opens a file picker for image/video/SVG.
+        const bgBtn = DomUtils.el('button', { class: 'ac-toolbar-btn', title: 'Set Background (Image/Video/SVG)' }, '🖼');
+        bgBtn.addEventListener('click', () => this._openBackgroundPicker());
+
+        // Background opacity slider (inline, small).
+        const bgOpacity = DomUtils.el('input', {
+            type: 'range', min: '0', max: '1', step: '0.05', value: '0.15',
+            class: 'ac-toolbar-btn ac-bg-opacity',
+            title: 'Background opacity'
+        });
+        bgOpacity.style.cssText = 'width:50px;accent-color:var(--ac-accent);';
+        bgOpacity.addEventListener('input', () => {
+            if (this.engine.background) this.engine.background.setOpacity(parseFloat(bgOpacity.value));
+        });
+
+        // Clear background button.
+        const bgClear = DomUtils.el('button', { class: 'ac-toolbar-btn', title: 'Clear Background' }, '⊘');
+        bgClear.addEventListener('click', () => {
+            if (this.engine.background) this.engine.background.clear();
+        });
+
+        rightGroup.append(zoomIn, zoomOut, fitBtn, clearBtn, bgBtn, bgOpacity, bgClear, themeBtn, liveBtn);
 
         this.element.append(brand, symbolSel, cursorBtn, drawTrigger, indTrigger, chartTypeTrigger, intervalGroup, rightGroup);
+    }
+
+    /**
+     * Open a hidden file picker for image/video/SVG backgrounds.
+     * The selected file is read as a data URL and set as the chart background.
+     */
+    _openBackgroundPicker() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*,video/*,.svg';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+        input.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const dataUrl = ev.target.result;
+                let type = 'image';
+                if (file.type.startsWith('video/')) type = 'video';
+                else if (file.type === 'image/svg+xml' || file.name.endsWith('.svg')) type = 'svg';
+                if (this.engine.background) {
+                    this.engine.background.set({ type, src: dataUrl, opacity: 0.15 });
+                }
+            };
+            reader.readAsDataURL(file);
+            input.remove();
+        });
+        input.click();
     }
 
     _toggleMenu(name, trigger) {
