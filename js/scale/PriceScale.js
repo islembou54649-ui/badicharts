@@ -83,25 +83,38 @@ export class PriceScale {
         const { min, max } = viewport.priceRange;
         const { ticks } = MathUtils.niceTicks(min, max, this.tickCount);
 
-        ctx.font = `${this.fontSize}px ${this.fontFamily}`;
+        // Use smaller font on mobile to prevent overflow.
+        let fontPx = this.fontSize;
+        let padRight = this._isMobile ? 4 : 8;
+        ctx.font = `${fontPx}px ${this.fontFamily}`;
         ctx.textBaseline = 'middle';
         ctx.fillStyle = theme.priceScaleText;
+
+        // Check if the longest label fits; if not, shrink font further.
+        const maxLabelW = w - padRight - 2;
+        let testLabel = MathUtils.formatPrice(max);
+        let testMetrics = ctx.measureText(testLabel);
+        while (testMetrics.width > maxLabelW && fontPx > 6) {
+            fontPx--;
+            ctx.font = `${fontPx}px ${this.fontFamily}`;
+            testMetrics = ctx.measureText(testLabel);
+        }
 
         for (const price of ticks) {
             if (price < min || price > max) continue;
             const py = viewport.priceToY(price);
-            // Gridline on chart — SOLID, very subtle (like TradingView)
+            // Gridline on chart — SOLID, very subtle
             ctx.strokeStyle = theme.gridLine;
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(0, py + 0.5);
             ctx.lineTo(x, py + 0.5);
             ctx.stroke();
-            // Label
+            // Label — right-aligned, fit within the axis width
             const label = MathUtils.formatPrice(price);
             ctx.textAlign = 'right';
             ctx.fillStyle = theme.priceScaleText;
-            ctx.fillText(label, x + w - 8, py);
+            ctx.fillText(label, x + w - padRight, py);
         }
 
         // Last price line + label
@@ -133,21 +146,29 @@ export class PriceScale {
         ctx.lineTo(chartW, y + 0.5);
         ctx.stroke();
 
-        // Price tag on the scale — pointed left, fills the price scale width
+        // Price tag on the scale — fits within the price scale width.
         const x = viewport.width - this.width;
         const label = MathUtils.formatPrice(last.close);
-        ctx.font = `bold ${this.fontSize}px ${this.fontFamily}`;
-        const metrics = ctx.measureText(label);
-        const padX = 8;
-        const tagH = this.fontSize + 6;
-        const tagW = this.width - 4;
+        // Auto-shrink font to fit the tag width.
+        let tagFontPx = this.fontSize + 1; // bold tag slightly bigger
+        ctx.font = `bold ${tagFontPx}px ${this.fontFamily}`;
+        const padX = this._isMobile ? 2 : 4;
+        const tagH = tagFontPx + 4;
+        const tagW = this.width - padX * 2;
+        let labelMetrics = ctx.measureText(label);
+        // Shrink font until the label fits within tagW.
+        while (labelMetrics.width > tagW - 4 && tagFontPx > 6) {
+            tagFontPx--;
+            ctx.font = `bold ${tagFontPx}px ${this.fontFamily}`;
+            labelMetrics = ctx.measureText(label);
+        }
         // Tag background
         ctx.fillStyle = color;
-        ctx.fillRect(x + 2, y - tagH / 2, tagW, tagH);
+        ctx.fillRect(x + padX, y - tagH / 2, tagW, tagH);
         // Label text
         ctx.fillStyle = theme.lastPriceTagText || '#fff';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(label, x + 2 + tagW / 2, y);
+        ctx.fillText(label, x + padX + tagW / 2, y);
     }
 }
