@@ -128,17 +128,21 @@ export class EventManager {
 
         if (isDoubleClick) {
             if (inPriceAxis) {
-                // Reset price scale to auto-fit.
+                // Reset price scale to auto-fit — ONLY the price range,
+                // WITHOUT scrolling or changing the horizontal position.
+                // The chart stays where the user left it; only the
+                // vertical (price) scale is reset.
                 vp.autoScale = true;
                 vp.updatePriceRange(this.engine.dataManager);
                 this.engine.requestRender();
                 this.activeAction = 'none';
                 return;
             } else if (inTimeAxis) {
-                // Reset horizontal zoom to default bar spacing + scroll to right.
+                // Reset horizontal zoom to default bar spacing.
+                // CHANGED: don't scrollToRight — stay at the current
+                // position. Only reset the bar spacing.
                 vp.barSpacing = 8;
                 vp.rightOffset = 10;
-                vp.scrollToRight(this.engine.dataManager.size);
                 vp.updatePriceRange(this.engine.dataManager);
                 this.engine.requestRender();
                 this.activeAction = 'none';
